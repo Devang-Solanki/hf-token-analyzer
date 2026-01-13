@@ -158,4 +158,4 @@ This tool is not officially affiliated with HuggingFace. Use at your own discret
 
 ---
 
-Made with ❤️ for the HuggingFace community
+Made with ❤️ for the Security community
