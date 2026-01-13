@@ -1,8 +1,13 @@
-# 🔐 HuggingFace Token Analyzer
+<p align="center">
+  <img src="public/logo.png" alt="HuggingFace Token Analyzer Logo" width="120" height="120" />
+</p>
 
-A comprehensive, client-side tool to analyze HuggingFace API tokens and understand their permissions and capabilities.
+<h1 align="center">HuggingFace Token Analyzer</h1>
 
-![HuggingFace Token Analyzer](https://img.shields.io/badge/HuggingFace-Token%20Analyzer-orange?style=for-the-badge&logo=huggingface)
+<p align="center">
+   <a href="https://www.gnu.org/licenses/gpl-3.0.en.html/"><img src="https://img.shields.io/badge/license-GPL_3.0-_red.svg"></a>
+   <a href="https://twitter.com/devangsolankii"><img src="https://img.shields.io/twitter/follow/devangsolankii.svg?logo=twitter"></a>
+</p>
 
 ## ✨ Features
 
