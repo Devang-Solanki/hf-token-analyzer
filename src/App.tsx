@@ -282,14 +282,13 @@ function App() {
 
             {analysis.isValid && (
               <Tabs defaultValue="overview">
-                <TabsList className="grid w-full grid-cols-5">
+                <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <TabsTrigger value="permissions">Permissions</TabsTrigger>
                   <TabsTrigger value="repositories">
                     Repositories {reposLoaded && `(${getTotalRepoCount()})`}
                   </TabsTrigger>
                   <TabsTrigger value="organizations">Organizations</TabsTrigger>
-                  <TabsTrigger value="scopes">Scopes</TabsTrigger>
                 </TabsList>
 
                 {/* Overview Tab */}
@@ -353,29 +352,34 @@ function App() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="flex items-start gap-4">
-                        <div className="flex-shrink-0">
-                          {analysis.user.avatarUrl ? (
-                            <img
-                              src={analysis.user.avatarUrl}
-                              alt={analysis.user.name}
-                              className="w-16 h-16 rounded-full border-2 border-border object-cover"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                target.nextElementSibling?.classList.remove('hidden');
-                              }}
-                            />
-                          ) : null}
-                          <div className={`w-16 h-16 rounded-full border-2 border-border bg-muted flex items-center justify-center ${analysis.user.avatarUrl ? 'hidden' : ''}`}>
-                            <User className="w-8 h-8 text-muted-foreground" />
+                        <a
+                          href={`https://huggingface.co/${analysis.user.name}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-start gap-4 hover:bg-accent rounded-lg p-2 -m-2 transition-colors"
+                        >
+                          <div className="flex-shrink-0">
+                            {analysis.user.avatarUrl ? (
+                              <img
+                                src={analysis.user.avatarUrl}
+                                alt={analysis.user.name}
+                                className="w-16 h-16 rounded-full border-2 border-border object-cover"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  target.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-16 h-16 rounded-full border-2 border-border bg-muted flex items-center justify-center ${analysis.user.avatarUrl ? 'hidden' : ''}`}>
+                              <User className="w-8 h-8 text-muted-foreground" />
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex-1 min-w-0 space-y-2">
-                          <div>
-                            <p className="font-semibold text-lg truncate">{analysis.user.fullname}</p>
-                            <p className="text-muted-foreground truncate">@{analysis.user.name}</p>
-                          </div>
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <div>
+                              <p className="font-semibold text-lg truncate">{analysis.user.fullname}</p>
+                              <p className="text-muted-foreground truncate">@{analysis.user.name}</p>
+                            </div>
                             <div className="flex flex-wrap gap-2">
                               {analysis.user.isPro && (
                                 <Badge className="bg-gradient-to-r from-yellow-400 to-orange-500">
@@ -397,14 +401,14 @@ function App() {
                               <p className="text-sm text-muted-foreground truncate">{analysis.user.email}</p>
                             )}
                           </div>
-                        </div>
+                        </a>
                       </CardContent>
                     </Card>
                   )}
                 </TabsContent>
 
                 {/* Permissions Tab */}
-                <TabsContent value="permissions">
+                <TabsContent value="permissions" className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
@@ -486,6 +490,75 @@ function App() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  {/* Fine-Grained Scopes Section */}
+                  {analysis.tokenType === 'fineGrained' && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Key className="w-5 h-5" />
+                          Fine-Grained Scopes
+                        </CardTitle>
+                        <CardDescription>
+                          Specific permissions granted to this fine-grained token
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {/* Global Permissions */}
+                          {analysis.globalPermissions && analysis.globalPermissions.length > 0 && (
+                            <div>
+                              <h4 className="font-medium mb-2">Global Permissions</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {analysis.globalPermissions.map((perm) => (
+                                  <Badge key={perm} variant="secondary">
+                                    {perm}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Scoped Permissions */}
+                          {analysis.fineGrainedScopes && analysis.fineGrainedScopes.length > 0 ? (
+                            <div>
+                              <h4 className="font-medium mb-2">Scoped Permissions</h4>
+                              <div className="space-y-3">
+                                {analysis.fineGrainedScopes.map((scope, index) => (
+                                  <div
+                                    key={index}
+                                    className="p-3 border rounded-lg"
+                                  >
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Badge variant="outline">
+                                        {scope.entity.type}
+                                      </Badge>
+                                      <span className="font-medium">
+                                        {scope.entity.name || scope.entity._id}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {scope.permissions.map((perm) => (
+                                        <Badge key={perm} variant="secondary" className="text-xs">
+                                          {perm}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            !analysis.globalPermissions?.length && (
+                              <p className="text-muted-foreground text-center py-4">
+                                No scoped permissions found
+                              </p>
+                            )
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
                 </TabsContent>
 
                 {/* Repositories Tab */}
@@ -634,83 +707,6 @@ function App() {
                     </CardContent>
                   </Card>
                 </TabsContent>
-
-                {/* Scopes Tab */}
-                <TabsContent value="scopes">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Key className="w-5 h-5" />
-                        Fine-Grained Scopes
-                      </CardTitle>
-                      <CardDescription>
-                        Specific permissions granted to this token
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {analysis.tokenType !== 'fineGrained' ? (
-                        <Alert>
-                          <AlertTriangle className="h-4 w-4" />
-                          <AlertTitle>Not a Fine-Grained Token</AlertTitle>
-                          <AlertDescription>
-                            This is a {analysis.tokenType} token. Fine-grained scopes are only available for fine-grained access tokens.
-                          </AlertDescription>
-                        </Alert>
-                      ) : (
-                        <div className="space-y-4">
-                          {/* Global Permissions */}
-                          {analysis.globalPermissions && analysis.globalPermissions.length > 0 && (
-                            <div>
-                              <h4 className="font-medium mb-2">Global Permissions</h4>
-                              <div className="flex flex-wrap gap-2">
-                                {analysis.globalPermissions.map((perm) => (
-                                  <Badge key={perm} variant="secondary">
-                                    {perm}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Scoped Permissions */}
-                          {analysis.fineGrainedScopes && analysis.fineGrainedScopes.length > 0 ? (
-                            <div>
-                              <h4 className="font-medium mb-2">Scoped Permissions</h4>
-                              <div className="space-y-3">
-                                {analysis.fineGrainedScopes.map((scope, index) => (
-                                  <div
-                                    key={index}
-                                    className="p-3 border rounded-lg"
-                                  >
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <Badge variant="outline">
-                                        {scope.entity.type}
-                                      </Badge>
-                                      <span className="font-medium">
-                                        {scope.entity.name || scope.entity._id}
-                                      </span>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {scope.permissions.map((perm) => (
-                                        <Badge key={perm} variant="secondary" className="text-xs">
-                                          {perm}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-muted-foreground text-center py-4">
-                              No scoped permissions found
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </TabsContent>
               </Tabs>
             )}
           </div>
@@ -719,9 +715,9 @@ function App() {
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-muted-foreground">
           <p>
-            Built with ❤️ for the HuggingFace community.{' '}
+            Built with ❤️ for the Security community.{' '}
             <a
-              href="https://github.com"
+              href="https://github.com/Devang-Solanki/hf-token-analyzer"
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline"
