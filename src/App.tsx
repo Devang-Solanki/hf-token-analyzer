@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { analyzeToken, formatDate, getTimeUntilExpiration, isTokenExpired, fetchUserRepositories } from '@/services/tokenAnalyzer';
+import { analyzeToken, formatDate, getTimeUntilExpiration, isTokenExpired, fetchUserRepositories, fetchScopedRepositories } from '@/services/tokenAnalyzer';
 import type { TokenAnalysis, UserRepositories, ModelRepository, DatasetRepository, SpaceRepository } from '@/types/huggingface';
 import {
   User,
@@ -105,20 +105,29 @@ function App() {
     
     setIsLoadingRepos(true);
     try {
-      // Fetch personal repositories
-      const personalRepos = await fetchUserRepositories(token, analysis.user.name);
-      
-      // Fetch organization repositories
-      const orgRepos: { [orgName: string]: UserRepositories } = {};
-      for (const org of analysis.organizations) {
-        const repos = await fetchUserRepositories(token, org.name);
-        orgRepos[org.name] = repos;
+      // For fine-grained tokens, fetch specific repos from scopes
+      if (analysis.tokenType === 'fineGrained' && analysis.fineGrainedScopes && analysis.fineGrainedScopes.length > 0) {
+        const scopedRepos = await fetchScopedRepositories(token, analysis.fineGrainedScopes);
+        setRepositories({
+          personal: scopedRepos,
+          organizations: {},
+        });
+      } else {
+        // For regular tokens, fetch by author
+        const personalRepos = await fetchUserRepositories(token, analysis.user.name);
+        
+        // Fetch organization repositories
+        const orgRepos: { [orgName: string]: UserRepositories } = {};
+        for (const org of analysis.organizations) {
+          const repos = await fetchUserRepositories(token, org.name);
+          orgRepos[org.name] = repos;
+        }
+        
+        setRepositories({
+          personal: personalRepos,
+          organizations: orgRepos,
+        });
       }
-      
-      setRepositories({
-        personal: personalRepos,
-        organizations: orgRepos,
-      });
       setReposLoaded(true);
     } catch (error) {
       console.error('Failed to load repositories:', error);
@@ -282,13 +291,12 @@ function App() {
 
             {analysis.isValid && (
               <Tabs defaultValue="overview">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <TabsTrigger value="permissions">Permissions</TabsTrigger>
                   <TabsTrigger value="repositories">
                     Repositories {reposLoaded && `(${getTotalRepoCount()})`}
                   </TabsTrigger>
-                  <TabsTrigger value="organizations">Organizations</TabsTrigger>
                 </TabsList>
 
                 {/* Overview Tab */}
@@ -402,6 +410,79 @@ function App() {
                             )}
                           </div>
                         </a>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Organizations Section */}
+                  {analysis.organizations.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Building2 className="w-5 h-5" />
+                          Organizations ({analysis.organizations.length})
+                        </CardTitle>
+                        <CardDescription>
+                          Organizations this token has access to
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {analysis.organizations.map((org) => (
+                            <a
+                              key={org.id}
+                              href={`https://huggingface.co/${org.name}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-start gap-4 p-4 border rounded-lg hover:bg-accent transition-colors"
+                            >
+                              <div className="flex-shrink-0">
+                                <img
+                                  src={org.avatarUrl}
+                                  alt={org.name}
+                                  className="w-12 h-12 rounded-lg object-cover"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.style.display = 'none';
+                                    target.nextElementSibling?.classList.remove('hidden');
+                                  }}
+                                />
+                                <div className="w-12 h-12 rounded-lg bg-muted hidden items-center justify-center">
+                                  <Building2 className="w-6 h-6 text-muted-foreground" />
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-semibold truncate">{org.fullname}</p>
+                                  {org.isEnterprise && (
+                                    <Badge className="bg-purple-500">Enterprise</Badge>
+                                  )}
+                                  {org.plan && (
+                                    <Badge variant="outline">{org.plan}</Badge>
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground truncate">@{org.name}</p>
+                                {org.roleInOrg && (
+                                  <div className="mt-2">
+                                    <Badge variant="secondary">
+                                      Role: {org.roleInOrg}
+                                    </Badge>
+                                  </div>
+                                )}
+                                {org.securityRestrictions && org.securityRestrictions.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {org.securityRestrictions.map((restriction) => (
+                                      <Badge key={restriction} variant="outline" className="text-xs">
+                                        <AlertTriangle className="w-3 h-3 mr-1" />
+                                        {restriction}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </a>
+                          ))}
+                        </div>
                       </CardContent>
                     </Card>
                   )}
@@ -595,8 +676,18 @@ function App() {
                         </div>
                       ) : (
                         <div className="space-y-6">
-                          {/* Personal Repositories */}
-                          {repositories.personal && analysis.user && (
+                          {/* For fine-grained tokens, show scoped repositories */}
+                          {analysis.tokenType === 'fineGrained' && repositories.personal && (
+                            <RepositorySection
+                              title="Scoped Repositories (from token permissions)"
+                              icon={<Key className="w-5 h-5" />}
+                              repositories={repositories.personal}
+                              canWrite={analysis.permissions.canWriteModels}
+                            />
+                          )}
+
+                          {/* For regular tokens, show personal repositories */}
+                          {analysis.tokenType !== 'fineGrained' && repositories.personal && analysis.user && (
                             <RepositorySection
                               title={`Personal (@${analysis.user.name})`}
                               icon={<User className="w-5 h-5" />}
@@ -605,8 +696,8 @@ function App() {
                             />
                           )}
 
-                          {/* Organization Repositories */}
-                          {Object.entries(repositories.organizations).map(([orgName, repos]) => {
+                          {/* Organization Repositories (only for non-fine-grained tokens) */}
+                          {analysis.tokenType !== 'fineGrained' && Object.entries(repositories.organizations).map(([orgName, repos]) => {
                             const org = analysis.organizations.find(o => o.name === orgName);
                             const canWrite = org?.roleInOrg === 'admin' || org?.roleInOrg === 'write';
                             return (
@@ -626,82 +717,6 @@ function App() {
                               No repositories found
                             </p>
                           )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                {/* Organizations Tab */}
-                <TabsContent value="organizations">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Building2 className="w-5 h-5" />
-                        Organizations ({analysis.organizations.length})
-                      </CardTitle>
-                      <CardDescription>
-                        Organizations this token has access to
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {analysis.organizations.length === 0 ? (
-                        <p className="text-muted-foreground text-center py-4">
-                          No organization memberships found
-                        </p>
-                      ) : (
-                        <div className="space-y-4">
-                          {analysis.organizations.map((org) => (
-                            <div
-                              key={org.id}
-                              className="flex items-start gap-4 p-4 border rounded-lg"
-                            >
-                              <div className="flex-shrink-0">
-                                <img
-                                  src={org.avatarUrl}
-                                  alt={org.name}
-                                  className="w-12 h-12 rounded-lg object-cover"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    target.nextElementSibling?.classList.remove('hidden');
-                                  }}
-                                />
-                                <div className="w-12 h-12 rounded-lg bg-muted hidden items-center justify-center">
-                                  <Building2 className="w-6 h-6 text-muted-foreground" />
-                                </div>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="font-semibold truncate">{org.fullname}</p>
-                                  {org.isEnterprise && (
-                                    <Badge className="bg-purple-500">Enterprise</Badge>
-                                  )}
-                                  {org.plan && (
-                                    <Badge variant="outline">{org.plan}</Badge>
-                                  )}
-                                </div>
-                                <p className="text-sm text-muted-foreground truncate">@{org.name}</p>
-                                {org.roleInOrg && (
-                                  <div className="mt-2">
-                                    <Badge variant="secondary">
-                                      Role: {org.roleInOrg}
-                                    </Badge>
-                                  </div>
-                                )}
-                                {org.securityRestrictions && org.securityRestrictions.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-1">
-                                    {org.securityRestrictions.map((restriction) => (
-                                      <Badge key={restriction} variant="outline" className="text-xs">
-                                        <AlertTriangle className="w-3 h-3 mr-1" />
-                                        {restriction}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
                         </div>
                       )}
                     </CardContent>

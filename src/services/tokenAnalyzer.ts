@@ -19,6 +19,183 @@ export async function fetchUserRepositories(
 }
 
 /**
+ * Fetch a specific model by its full ID (e.g., "mistralai/Mistral-7B-Instruct-v0.2")
+ * Note: Don't encode the slash in the model ID - HF API expects the path format
+ */
+async function fetchModelById(token: string, modelId: string): Promise<ModelRepository | null> {
+  try {
+    // Don't use encodeURIComponent on the full ID as it would encode the slash
+    // The API expects: /api/models/mistralai/Mistral-7B-Instruct-v0.2
+    const response = await fetch(
+      `${HF_API_BASE}/api/models/${modelId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token.trim()}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`Failed to fetch model ${modelId}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      ...data,
+      type: 'model' as const,
+    };
+  } catch (error) {
+    console.error(`Error fetching model ${modelId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Fetch a specific dataset by its full ID
+ */
+async function fetchDatasetById(token: string, datasetId: string): Promise<DatasetRepository | null> {
+  try {
+    const response = await fetch(
+      `${HF_API_BASE}/api/datasets/${datasetId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token.trim()}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`Failed to fetch dataset ${datasetId}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      ...data,
+      type: 'dataset' as const,
+    };
+  } catch (error) {
+    console.error(`Error fetching dataset ${datasetId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Fetch a specific space by its full ID
+ */
+async function fetchSpaceById(token: string, spaceId: string): Promise<SpaceRepository | null> {
+  try {
+    const response = await fetch(
+      `${HF_API_BASE}/api/spaces/${spaceId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token.trim()}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`Failed to fetch space ${spaceId}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      ...data,
+      type: 'space' as const,
+    };
+  } catch (error) {
+    console.error(`Error fetching space ${spaceId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Extract repository IDs from fine-grained scopes
+ */
+export function extractRepoIdsFromScopes(scopes: TokenScope[]): {
+  models: string[];
+  datasets: string[];
+  spaces: string[];
+} {
+  const models: string[] = [];
+  const datasets: string[] = [];
+  const spaces: string[] = [];
+
+  console.log('Extracting repo IDs from scopes:', scopes);
+
+  for (const scope of scopes) {
+    const entityType = scope.entity.type;
+    // Try name first, then _id
+    const entityName = scope.entity.name || scope.entity._id;
+
+    console.log(`Scope entity: type=${entityType}, name=${scope.entity.name}, _id=${scope.entity._id}, resolved=${entityName}`);
+
+    if (!entityName) {
+      console.log('Skipping scope with no name or _id');
+      continue;
+    }
+
+    switch (entityType) {
+      case 'model':
+        models.push(entityName);
+        break;
+      case 'dataset':
+        datasets.push(entityName);
+        break;
+      case 'space':
+        spaces.push(entityName);
+        break;
+      default:
+        console.log(`Skipping non-repo entity type: ${entityType}`);
+    }
+  }
+
+  console.log('Extracted repo IDs:', { models, datasets, spaces });
+  return { models, datasets, spaces };
+}
+
+/**
+ * Fetch repositories from fine-grained scopes (specific repos the token has access to)
+ */
+export async function fetchScopedRepositories(
+  token: string,
+  scopes: TokenScope[]
+): Promise<UserRepositories> {
+  console.log('fetchScopedRepositories called with scopes:', scopes);
+  
+  const repoIds = extractRepoIdsFromScopes(scopes);
+  
+  console.log('Will fetch these repos:', repoIds);
+
+  // Fetch all repositories in parallel
+  const [models, datasets, spaces] = await Promise.all([
+    Promise.all(repoIds.models.map(id => {
+      console.log(`Fetching model: ${id}`);
+      return fetchModelById(token, id);
+    })),
+    Promise.all(repoIds.datasets.map(id => {
+      console.log(`Fetching dataset: ${id}`);
+      return fetchDatasetById(token, id);
+    })),
+    Promise.all(repoIds.spaces.map(id => {
+      console.log(`Fetching space: ${id}`);
+      return fetchSpaceById(token, id);
+    })),
+  ]);
+
+  const result = {
+    models: models.filter((m): m is ModelRepository => m !== null),
+    datasets: datasets.filter((d): d is DatasetRepository => d !== null),
+    spaces: spaces.filter((s): s is SpaceRepository => s !== null),
+  };
+  
+  console.log('fetchScopedRepositories result:', result);
+  return result;
+}
+
+/**
  * Fetch models for a user or organization
  */
 async function fetchModels(token: string, author: string): Promise<ModelRepository[]> {
