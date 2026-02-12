@@ -1,0 +1,76 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Create release archive
+        run: |
+          cd dist
+          zip -r ../hf-token-analyzer-${{ github.ref_name }}.zip .
+          cd ..
+          tar -czvf hf-token-analyzer-${{ github.ref_name }}.tar.gz -C dist .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            hf-token-analyzer-${{ github.ref_name }}.zip
+            hf-token-analyzer-${{ github.ref_name }}.tar.gz
+          generate_release_notes: true
+          body: |
+            ## HuggingFace Token Analyzer ${{ github.ref_name }}
+            
+            ### Download & Run
+            
+            1. Download the archive (`.zip` or `.tar.gz`)
+            2. Extract the files
+            3. Serve the files using any static file server:
+            
+            **Using Python:**
+            ```bash
+            cd hf-token-analyzer-*
+            python -m http.server 8080
+            ```
+            
+            **Using Node.js (npx serve):**
+            ```bash
+            cd hf-token-analyzer-*
+            npx serve .
+            ```
+            
+            **Using PHP:**
+            ```bash
+            cd hf-token-analyzer-*
+            php -S localhost:8080
+            ```
+            
+            4. Open `http://localhost:8080` in your browser
+            
+            ---
+            
+            🔒 **100% client-side** - Your token never leaves your browser!

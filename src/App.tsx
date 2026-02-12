@@ -34,8 +34,15 @@ import {
   RefreshCw,
   Sun,
   Moon,
-  Shield
+  Shield,
+  Info
 } from 'lucide-react';
+
+interface SecurityFinding {
+  type: 'critical' | 'warning' | 'info' | 'good';
+  title: string;
+  description: string;
+}
 
 interface RepositoriesData {
   personal: UserRepositories | null;
@@ -169,6 +176,113 @@ function App() {
       handleAnalyze();
     }
   }, [token, isLoading, handleAnalyze]);
+
+  const getSecurityFindings = useCallback((): SecurityFinding[] => {
+    if (!analysis?.isValid) return [];
+    
+    const findings: SecurityFinding[] = [];
+    
+    // Check for admin/god token (critical)
+    if (analysis.tokenType === 'god') {
+      findings.push({
+        type: 'critical',
+        title: 'Admin Token Detected',
+        description: 'This token has full administrative access. It can perform any action including deleting repositories and managing organizations. Use with extreme caution and consider using a more restricted token.'
+      });
+    }
+    
+    // Check for no expiration (warning)
+    if (!analysis.expiresAt) {
+      findings.push({
+        type: 'warning',
+        title: 'Token Never Expires',
+        description: 'This token has no expiration date. Consider setting an expiration for better security practices. Tokens without expiration pose a higher risk if compromised.'
+      });
+    }
+    
+    // Check if token is expired (critical)
+    if (analysis.expiresAt && isTokenExpired(analysis.expiresAt)) {
+      findings.push({
+        type: 'critical',
+        title: 'Token Expired',
+        description: 'This token has expired and will not work for API requests. Please generate a new token.'
+      });
+    }
+    
+    // Check for write access (info)
+    if (analysis.tokenType === 'write') {
+      findings.push({
+        type: 'info',
+        title: 'Write Access Token',
+        description: 'This token can create, modify, and delete repositories. Ensure this level of access is necessary for your use case.'
+      });
+    }
+    
+    // Check for organization security restrictions
+    const orgsWithRestrictions = analysis.organizations.filter(
+      org => org.securityRestrictions && org.securityRestrictions.length > 0
+    );
+    if (orgsWithRestrictions.length > 0) {
+      const restrictionTypes = new Set<string>();
+      orgsWithRestrictions.forEach(org => {
+        org.securityRestrictions?.forEach(r => restrictionTypes.add(r));
+      });
+      findings.push({
+        type: 'warning',
+        title: 'Organization Security Restrictions',
+        description: `${orgsWithRestrictions.length} organization(s) have security restrictions that may limit this token's access: ${Array.from(restrictionTypes).join(', ')}. You may need to satisfy these requirements (MFA, SSO, IP allowlist, or token policy) to access organization resources.`
+      });
+    }
+    
+    // Check for fine-grained token with gated repo access
+    if (analysis.tokenType === 'fineGrained') {
+      const hasGatedAccess = analysis.permissions.canAccessGatedRepos;
+      if (hasGatedAccess) {
+        findings.push({
+          type: 'info',
+          title: 'Gated Repository Access',
+          description: 'This fine-grained token can access gated repositories that you have been granted access to.'
+        });
+      }
+      
+      // Check scope count
+      const scopeCount = analysis.fineGrainedScopes?.length || 0;
+      if (scopeCount > 10) {
+        findings.push({
+          type: 'info',
+          title: 'Multiple Scoped Resources',
+          description: `This token has access to ${scopeCount} specific resources. Consider if all these scopes are necessary.`
+        });
+      }
+    }
+    
+    // Good findings
+    if (analysis.tokenType === 'read') {
+      findings.push({
+        type: 'good',
+        title: 'Read-Only Token',
+        description: 'This token has read-only access, which is the most secure option for applications that only need to download models or datasets.'
+      });
+    }
+    
+    if (analysis.tokenType === 'fineGrained' && (analysis.fineGrainedScopes?.length || 0) <= 5) {
+      findings.push({
+        type: 'good',
+        title: 'Limited Scope Token',
+        description: 'This fine-grained token has a limited number of scopes, following the principle of least privilege.'
+      });
+    }
+    
+    if (analysis.expiresAt && !isTokenExpired(analysis.expiresAt)) {
+      findings.push({
+        type: 'good',
+        title: 'Token Has Expiration',
+        description: 'This token has an expiration date set, which is a good security practice.'
+      });
+    }
+    
+    return findings;
+  }, [analysis]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -349,6 +463,69 @@ function App() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  {/* Security Analysis */}
+                  {(() => {
+                    const findings = getSecurityFindings();
+                    const criticalCount = findings.filter(f => f.type === 'critical').length;
+                    const warningCount = findings.filter(f => f.type === 'warning').length;
+                    
+                    return findings.length > 0 ? (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Shield className="w-5 h-5" />
+                            Security Analysis
+                          </CardTitle>
+                          <CardDescription>
+                            {criticalCount > 0 ? (
+                              <span className="text-destructive">{criticalCount} issue(s) need attention</span>
+                            ) : warningCount > 0 ? (
+                              <span>{warningCount} recommendation(s)</span>
+                            ) : (
+                              <span>No security concerns found</span>
+                            )}
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {findings.map((finding, index) => (
+                              <div
+                                key={index}
+                                className="flex items-start gap-3 p-3 rounded-lg border bg-secondary/30"
+                              >
+                                <div className="mt-0.5">
+                                  {finding.type === 'critical' ? (
+                                    <XCircle className="w-4 h-4 text-destructive" />
+                                  ) : finding.type === 'warning' ? (
+                                    <AlertTriangle className="w-4 h-4 text-muted-foreground" />
+                                  ) : finding.type === 'good' ? (
+                                    <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                                  ) : (
+                                    <Info className="w-4 h-4 text-muted-foreground" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`font-medium text-sm ${finding.type === 'critical' ? 'text-destructive' : 'text-foreground'}`}>
+                                    {finding.title}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    {finding.description}
+                                  </p>
+                                </div>
+                                <Badge
+                                  variant={finding.type === 'critical' ? 'destructive' : finding.type === 'good' ? 'secondary' : 'outline'}
+                                  className="text-xs shrink-0"
+                                >
+                                  {finding.type === 'critical' ? 'Critical' : finding.type === 'warning' ? 'Warning' : finding.type === 'good' ? 'Good' : 'Info'}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : null;
+                  })()}
 
                   {/* User Info */}
                   {analysis.user && (
