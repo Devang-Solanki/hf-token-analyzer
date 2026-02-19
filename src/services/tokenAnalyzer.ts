@@ -123,19 +123,12 @@ export function extractRepoIdsFromScopes(scopes: TokenScope[]): {
   const datasets: string[] = [];
   const spaces: string[] = [];
 
-  console.log('Extracting repo IDs from scopes:', scopes);
-
   for (const scope of scopes) {
     const entityType = scope.entity.type;
     // Try name first, then _id
     const entityName = scope.entity.name || scope.entity._id;
 
-    console.log(`Scope entity: type=${entityType}, name=${scope.entity.name}, _id=${scope.entity._id}, resolved=${entityName}`);
-
-    if (!entityName) {
-      console.log('Skipping scope with no name or _id');
-      continue;
-    }
+    if (!entityName) continue;
 
     switch (entityType) {
       case 'model':
@@ -147,12 +140,9 @@ export function extractRepoIdsFromScopes(scopes: TokenScope[]): {
       case 'space':
         spaces.push(entityName);
         break;
-      default:
-        console.log(`Skipping non-repo entity type: ${entityType}`);
     }
   }
 
-  console.log('Extracted repo IDs:', { models, datasets, spaces });
   return { models, datasets, spaces };
 }
 
@@ -163,36 +153,20 @@ export async function fetchScopedRepositories(
   token: string,
   scopes: TokenScope[]
 ): Promise<UserRepositories> {
-  console.log('fetchScopedRepositories called with scopes:', scopes);
-  
   const repoIds = extractRepoIdsFromScopes(scopes);
-  
-  console.log('Will fetch these repos:', repoIds);
 
-  // Fetch all repositories in parallel
+  // Fetch all individually-scoped repositories in parallel
   const [models, datasets, spaces] = await Promise.all([
-    Promise.all(repoIds.models.map(id => {
-      console.log(`Fetching model: ${id}`);
-      return fetchModelById(token, id);
-    })),
-    Promise.all(repoIds.datasets.map(id => {
-      console.log(`Fetching dataset: ${id}`);
-      return fetchDatasetById(token, id);
-    })),
-    Promise.all(repoIds.spaces.map(id => {
-      console.log(`Fetching space: ${id}`);
-      return fetchSpaceById(token, id);
-    })),
+    Promise.all(repoIds.models.map(id => fetchModelById(token, id))),
+    Promise.all(repoIds.datasets.map(id => fetchDatasetById(token, id))),
+    Promise.all(repoIds.spaces.map(id => fetchSpaceById(token, id))),
   ]);
 
-  const result = {
+  return {
     models: models.filter((m): m is ModelRepository => m !== null),
     datasets: datasets.filter((d): d is DatasetRepository => d !== null),
     spaces: spaces.filter((s): s is SpaceRepository => s !== null),
   };
-  
-  console.log('fetchScopedRepositories result:', result);
-  return result;
 }
 
 /**

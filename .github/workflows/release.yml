@@ -25,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build project
-        run: npm run build
+      - name: Build project with relative paths
+        run: npx vite build --base=./
 
       - name: Create release archive
         run: |
@@ -49,27 +49,22 @@ jobs:
             
             1. Download the archive (`.zip` or `.tar.gz`)
             2. Extract the files
-            3. Serve the files using any static file server:
+            3. Open `index.html` directly in your browser, or use a local server:
             
-            **Using Python:**
+            **Direct file access:**
+            Simply double-click `index.html` to open in your browser.
+            
+            **Using a local server (optional):**
             ```bash
-            cd hf-token-analyzer-*
+            # Python
             python -m http.server 8080
-            ```
             
-            **Using Node.js (npx serve):**
-            ```bash
-            cd hf-token-analyzer-*
+            # Node.js
             npx serve .
-            ```
             
-            **Using PHP:**
-            ```bash
-            cd hf-token-analyzer-*
+            # PHP
             php -S localhost:8080
             ```
-            
-            4. Open `http://localhost:8080` in your browser
             
             ---
             

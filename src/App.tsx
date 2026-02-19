@@ -112,29 +112,56 @@ function App() {
     
     setIsLoadingRepos(true);
     try {
-      // For fine-grained tokens, fetch specific repos from scopes
+      // Always fetch repos by author (username + orgs) - this is how TruffleHog does it
+      // Fine-grained tokens scoped to a user/org entity grant access to ALL repos under that entity
+      const personalRepos = await fetchUserRepositories(token, analysis.user.name);
+      
+      // Fetch organization repositories
+      const orgRepos: { [orgName: string]: UserRepositories } = {};
+      for (const org of analysis.organizations) {
+        const repos = await fetchUserRepositories(token, org.name);
+        orgRepos[org.name] = repos;
+      }
+
+      // For fine-grained tokens, also fetch individually-scoped repos (model/dataset/space entities)
+      // These might be repos from other users/orgs that the token has explicit access to
       if (analysis.tokenType === 'fineGrained' && analysis.fineGrainedScopes && analysis.fineGrainedScopes.length > 0) {
         const scopedRepos = await fetchScopedRepositories(token, analysis.fineGrainedScopes);
-        setRepositories({
-          personal: scopedRepos,
-          organizations: {},
-        });
-      } else {
-        // For regular tokens, fetch by author
-        const personalRepos = await fetchUserRepositories(token, analysis.user.name);
         
-        // Fetch organization repositories
-        const orgRepos: { [orgName: string]: UserRepositories } = {};
-        for (const org of analysis.organizations) {
-          const repos = await fetchUserRepositories(token, org.name);
-          orgRepos[org.name] = repos;
+        // Merge scoped repos into personal repos, deduplicating by ID
+        const existingModelIds = new Set(personalRepos.models.map(m => m.id));
+        const existingDatasetIds = new Set(personalRepos.datasets.map(d => d.id));
+        const existingSpaceIds = new Set(personalRepos.spaces.map(s => s.id));
+        
+        // Also check org repos for duplicates
+        Object.values(orgRepos).forEach(repos => {
+          repos.models.forEach(m => existingModelIds.add(m.id));
+          repos.datasets.forEach(d => existingDatasetIds.add(d.id));
+          repos.spaces.forEach(s => existingSpaceIds.add(s.id));
+        });
+        
+        // Add only repos not already found via author search
+        for (const model of scopedRepos.models) {
+          if (!existingModelIds.has(model.id)) {
+            personalRepos.models.push(model);
+          }
         }
-        
-        setRepositories({
-          personal: personalRepos,
-          organizations: orgRepos,
-        });
+        for (const dataset of scopedRepos.datasets) {
+          if (!existingDatasetIds.has(dataset.id)) {
+            personalRepos.datasets.push(dataset);
+          }
+        }
+        for (const space of scopedRepos.spaces) {
+          if (!existingSpaceIds.has(space.id)) {
+            personalRepos.spaces.push(space);
+          }
+        }
       }
+      
+      setRepositories({
+        personal: personalRepos,
+        organizations: orgRepos,
+      });
       setReposLoaded(true);
     } catch (error) {
       console.error('Failed to load repositories:', error);
@@ -853,18 +880,8 @@ function App() {
                         </div>
                       ) : (
                         <div className="space-y-6">
-                          {/* For fine-grained tokens, show scoped repositories */}
-                          {analysis.tokenType === 'fineGrained' && repositories.personal && (
-                            <RepositorySection
-                              title="Scoped Repositories (from token permissions)"
-                              icon={<Key className="w-5 h-5" />}
-                              repositories={repositories.personal}
-                              canWrite={analysis.permissions.canWriteModels}
-                            />
-                          )}
-
-                          {/* For regular tokens, show personal repositories */}
-                          {analysis.tokenType !== 'fineGrained' && repositories.personal && analysis.user && (
+                          {/* Personal repositories */}
+                          {repositories.personal && analysis.user && (
                             <RepositorySection
                               title={`Personal (@${analysis.user.name})`}
                               icon={<User className="w-5 h-5" />}
@@ -873,8 +890,8 @@ function App() {
                             />
                           )}
 
-                          {/* Organization Repositories (only for non-fine-grained tokens) */}
-                          {analysis.tokenType !== 'fineGrained' && Object.entries(repositories.organizations).map(([orgName, repos]) => {
+                          {/* Organization Repositories */}
+                          {Object.entries(repositories.organizations).map(([orgName, repos]) => {
                             const org = analysis.organizations.find(o => o.name === orgName);
                             const canWrite = org?.roleInOrg === 'admin' || org?.roleInOrg === 'write';
                             return (
