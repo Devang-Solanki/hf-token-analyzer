@@ -2,6 +2,25 @@ import type { WhoAmIResponse, TokenAnalysis, TokenScope, FineGrainedPermissions,
 
 const HF_API_BASE = 'https://huggingface.co';
 
+/** Repositories requested per listing page. */
+const PAGE_SIZE = 100;
+/** Hard ceiling on pages per listing, so one huge account cannot hang the tab. */
+const MAX_PAGES = 10;
+
+function authHeaders(token: string): HeadersInit {
+  return { Authorization: `Bearer ${token.trim()}` };
+}
+
+/** Pull the `rel="next"` URL out of a Link header, if the API sent one. */
+function parseNextLink(header: string | null): string | null {
+  if (!header) return null;
+  for (const part of header.split(',')) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="?next"?/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
 /**
  * Fetch all repositories (models, datasets, spaces) for a user or organization
  */
@@ -10,103 +29,43 @@ export async function fetchUserRepositories(
   username: string
 ): Promise<UserRepositories> {
   const [models, datasets, spaces] = await Promise.all([
-    fetchModels(token, username),
-    fetchDatasets(token, username),
-    fetchSpaces(token, username),
+    fetchRepoList<ModelRepository>(token, 'models', username),
+    fetchRepoList<DatasetRepository>(token, 'datasets', username),
+    fetchRepoList<SpaceRepository>(token, 'spaces', username),
   ]);
 
-  return { models, datasets, spaces };
+  return {
+    models: models.items,
+    datasets: datasets.items,
+    spaces: spaces.items,
+    truncated: models.truncated || datasets.truncated || spaces.truncated,
+  };
 }
 
 /**
- * Fetch a specific model by its full ID (e.g., "mistralai/Mistral-7B-Instruct-v0.2")
- * Note: Don't encode the slash in the model ID - HF API expects the path format
+ * Fetch one repository by its full id, e.g. "mistralai/Mistral-7B-Instruct-v0.2".
+ * The id keeps its slash - the API expects a path, not an encoded segment.
  */
-async function fetchModelById(token: string, modelId: string): Promise<ModelRepository | null> {
+async function fetchRepoById<T>(
+  token: string,
+  kind: 'models' | 'datasets' | 'spaces',
+  id: string
+): Promise<T | null> {
+  const type = kind.slice(0, -1) as 'model' | 'dataset' | 'space';
+
   try {
-    // Don't use encodeURIComponent on the full ID as it would encode the slash
-    // The API expects: /api/models/mistralai/Mistral-7B-Instruct-v0.2
-    const response = await fetch(
-      `${HF_API_BASE}/api/models/${modelId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token.trim()}`,
-        },
-      }
-    );
+    const response = await fetch(`${HF_API_BASE}/api/${kind}/${id}`, {
+      headers: authHeaders(token),
+    });
 
     if (!response.ok) {
-      console.error(`Failed to fetch model ${modelId}: ${response.status}`);
+      console.error(`Failed to fetch ${type} ${id}: ${response.status}`);
       return null;
     }
 
-    const data = await response.json();
-    return {
-      ...data,
-      type: 'model' as const,
-    };
+    return { ...(await response.json()), type } as T;
   } catch (error) {
-    console.error(`Error fetching model ${modelId}:`, error);
-    return null;
-  }
-}
-
-/**
- * Fetch a specific dataset by its full ID
- */
-async function fetchDatasetById(token: string, datasetId: string): Promise<DatasetRepository | null> {
-  try {
-    const response = await fetch(
-      `${HF_API_BASE}/api/datasets/${datasetId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token.trim()}`,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      console.error(`Failed to fetch dataset ${datasetId}: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-    return {
-      ...data,
-      type: 'dataset' as const,
-    };
-  } catch (error) {
-    console.error(`Error fetching dataset ${datasetId}:`, error);
-    return null;
-  }
-}
-
-/**
- * Fetch a specific space by its full ID
- */
-async function fetchSpaceById(token: string, spaceId: string): Promise<SpaceRepository | null> {
-  try {
-    const response = await fetch(
-      `${HF_API_BASE}/api/spaces/${spaceId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token.trim()}`,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      console.error(`Failed to fetch space ${spaceId}: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-    return {
-      ...data,
-      type: 'space' as const,
-    };
-  } catch (error) {
-    console.error(`Error fetching space ${spaceId}:`, error);
+    console.error(`Error fetching ${type} ${id}:`, error);
     return null;
   }
 }
@@ -157,106 +116,69 @@ export async function fetchScopedRepositories(
 
   // Fetch all individually-scoped repositories in parallel
   const [models, datasets, spaces] = await Promise.all([
-    Promise.all(repoIds.models.map(id => fetchModelById(token, id))),
-    Promise.all(repoIds.datasets.map(id => fetchDatasetById(token, id))),
-    Promise.all(repoIds.spaces.map(id => fetchSpaceById(token, id))),
+    Promise.all(repoIds.models.map(id => fetchRepoById<ModelRepository>(token, 'models', id))),
+    Promise.all(repoIds.datasets.map(id => fetchRepoById<DatasetRepository>(token, 'datasets', id))),
+    Promise.all(repoIds.spaces.map(id => fetchRepoById<SpaceRepository>(token, 'spaces', id))),
   ]);
 
   return {
     models: models.filter((m): m is ModelRepository => m !== null),
     datasets: datasets.filter((d): d is DatasetRepository => d !== null),
     spaces: spaces.filter((s): s is SpaceRepository => s !== null),
+    truncated: false,
   };
 }
 
 /**
- * Fetch models for a user or organization
+ * Fetch every repository of one kind for a user or organization.
+ *
+ * The listing endpoints are cursor-paginated through a `Link` header. That header
+ * is only readable cross-origin when the API exposes it, so when it is missing and
+ * the page came back full we report the result as truncated rather than claim a
+ * total we cannot stand behind - under-reporting a token's reach is worse than
+ * over-warning about it.
  */
-async function fetchModels(token: string, author: string): Promise<ModelRepository[]> {
-  try {
-    const response = await fetch(
-      `${HF_API_BASE}/api/models?author=${encodeURIComponent(author)}&limit=100`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token.trim()}`,
-        },
+async function fetchRepoList<T>(
+  token: string,
+  kind: 'models' | 'datasets' | 'spaces',
+  author: string
+): Promise<{ items: T[]; truncated: boolean }> {
+  const type = kind.slice(0, -1) as 'model' | 'dataset' | 'space';
+  const items: T[] = [];
+  let url: string | null =
+    `${HF_API_BASE}/api/${kind}?author=${encodeURIComponent(author)}&limit=${PAGE_SIZE}`;
+  let pages = 0;
+
+  while (url && pages < MAX_PAGES) {
+    try {
+      const response = await fetch(url, { headers: authHeaders(token) });
+
+      if (!response.ok) {
+        console.error(`Failed to fetch ${kind} for ${author}: ${response.status}`);
+        return { items, truncated: true };
       }
-    );
 
-    if (!response.ok) {
-      console.error(`Failed to fetch models for ${author}: ${response.status}`);
-      return [];
-    }
+      const page = (await response.json()) as Record<string, unknown>[];
+      items.push(...page.map((repo) => ({ ...repo, type }) as T));
+      pages += 1;
 
-    const data = await response.json();
-    return data.map((model: Record<string, unknown>) => ({
-      ...model,
-      type: 'model' as const,
-    }));
-  } catch (error) {
-    console.error(`Error fetching models for ${author}:`, error);
-    return [];
-  }
-}
-
-/**
- * Fetch datasets for a user or organization
- */
-async function fetchDatasets(token: string, author: string): Promise<DatasetRepository[]> {
-  try {
-    const response = await fetch(
-      `${HF_API_BASE}/api/datasets?author=${encodeURIComponent(author)}&limit=100`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token.trim()}`,
-        },
+      const next = parseNextLink(response.headers.get('Link'));
+      if (next) {
+        url = next;
+        continue;
       }
-    );
 
-    if (!response.ok) {
-      console.error(`Failed to fetch datasets for ${author}: ${response.status}`);
-      return [];
-    }
-
-    const data = await response.json();
-    return data.map((dataset: Record<string, unknown>) => ({
-      ...dataset,
-      type: 'dataset' as const,
-    }));
-  } catch (error) {
-    console.error(`Error fetching datasets for ${author}:`, error);
-    return [];
-  }
-}
-
-/**
- * Fetch spaces for a user or organization
- */
-async function fetchSpaces(token: string, author: string): Promise<SpaceRepository[]> {
-  try {
-    const response = await fetch(
-      `${HF_API_BASE}/api/spaces?author=${encodeURIComponent(author)}&limit=100`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token.trim()}`,
-        },
+      url = null;
+      if (page.length === PAGE_SIZE) {
+        return { items, truncated: true };
       }
-    );
-
-    if (!response.ok) {
-      console.error(`Failed to fetch spaces for ${author}: ${response.status}`);
-      return [];
+    } catch (error) {
+      console.error(`Error fetching ${kind} for ${author}:`, error);
+      return { items, truncated: true };
     }
-
-    const data = await response.json();
-    return data.map((space: Record<string, unknown>) => ({
-      ...space,
-      type: 'space' as const,
-    }));
-  } catch (error) {
-    console.error(`Error fetching spaces for ${author}:`, error);
-    return [];
   }
+
+  return { items, truncated: url !== null };
 }
 
 /**
@@ -572,69 +494,3 @@ export async function testEndpoint(
   }
 }
 
-/**
- * Format a date string for display
- */
-export function formatDate(dateString?: string): string {
-  if (!dateString) return 'N/A';
-  
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return dateString;
-  }
-}
-
-/**
- * Check if a token is expired
- */
-export function isTokenExpired(expiresAt?: string): boolean {
-  if (!expiresAt) return false;
-  
-  try {
-    const expirationDate = new Date(expiresAt);
-    return expirationDate < new Date();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get time until token expiration
- */
-export function getTimeUntilExpiration(expiresAt?: string): string {
-  if (!expiresAt) return 'Never expires';
-  
-  try {
-    const expirationDate = new Date(expiresAt);
-    const now = new Date();
-    
-    if (expirationDate < now) {
-      return 'Expired';
-    }
-    
-    const diffMs = expirationDate.getTime() - now.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    
-    if (diffDays > 0) {
-      return `${diffDays} day${diffDays > 1 ? 's' : ''} ${diffHours} hour${diffHours > 1 ? 's' : ''}`;
-    }
-    
-    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    if (diffHours > 0) {
-      return `${diffHours} hour${diffHours > 1 ? 's' : ''} ${diffMinutes} minute${diffMinutes > 1 ? 's' : ''}`;
-    }
-    
-    return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''}`;
-  } catch {
-    return 'Unknown';
-  }
-}

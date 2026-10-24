@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hf-analyzer.devanghacks.in/sitemap.xml

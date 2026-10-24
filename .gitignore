@@ -30,3 +30,9 @@ dist-ssr
 
 # TypeScript cache
 *.tsbuildinfo
+
+# TypeScript project-reference output
+vite.config.d.ts
+
+# Full-size logo original. Already preserved in git history; see README.
+assets/logo-source.png

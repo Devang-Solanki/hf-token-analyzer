@@ -1,0 +1,62 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  @font-face{font-family:'Space Grotesk';font-weight:300 700;font-display:block;
+    src:url('../public/fonts/space-grotesk-latin.woff2') format('woff2')}
+  @font-face{font-family:'JetBrains Mono';font-weight:100 800;font-display:block;
+    src:url('../public/fonts/jetbrains-mono-latin.woff2') format('woff2')}
+</style>
+<style>
+  :root{
+    --paper:#0b0c0f; --card:#111318; --ink:#eaebee; --soft:#8f96a3; --rule:#22252d;
+    --accent:#d6f740;
+    --contained:#5fbf9e; --elevated:#f09a4a; --breach:#f4826f; --total:#c0a2f5;
+    --dot:rgba(143,150,163,0.07);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1200px;height:630px;background:var(--paper);color:var(--ink);
+       font-family:'JetBrains Mono',monospace;display:flex;flex-direction:column;
+       justify-content:space-between;padding:64px 72px;overflow:hidden;
+       background-image:radial-gradient(circle,var(--dot) 1px,transparent 1px);
+       background-size:32px 32px}
+  .top{display:flex;align-items:center;gap:13px}
+  .top img{width:36px;height:auto}
+  .top span{font-size:19px;font-weight:600;letter-spacing:.12em;
+            text-transform:uppercase;color:var(--accent)}
+  h1{font-family:'Space Grotesk',sans-serif;font-size:72px;font-weight:500;line-height:1.02;letter-spacing:-.03em;max-width:11ch}
+  p{margin-top:22px;font-size:24px;line-height:1.45;color:var(--soft);max-width:26ch}
+  .ramp{display:flex;flex-direction:column;gap:2px;margin-top:40px;width:452px;flex:none}
+  .row{display:flex;align-items:baseline;gap:14px;background:var(--card);
+       padding:11px 18px;border-left:3px solid var(--sev)}
+  .name{font-size:15px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--sev);min-width:140px}
+  .what{font-size:16px;color:var(--soft);white-space:nowrap}
+  .foot{display:flex;align-items:center;justify-content:space-between;
+        border-top:1px solid var(--rule);padding-top:22px}
+  .foot .url{font-family:'IBM Plex Mono',monospace;font-size:19px;color:var(--soft)}
+  .foot .tag{font-size:15px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
+  .body{display:flex;justify-content:space-between;align-items:flex-start;gap:56px}
+</style></head>
+<body>
+  <div class="top">
+    <img src="../public/logo.png" alt="">
+    <span>[ Token Analyzer ]</span>
+  </div>
+
+  <div class="body">
+    <div>
+      <h1>What can this token do?</h1>
+      <p>Permissions, organizations and writable repositories &mdash; read in your browser.</p>
+    </div>
+    <div class="ramp">
+      <div class="row" style="--sev:var(--contained)"><span class="name">Read-only</span><span class="what">downloads only</span></div>
+      <div class="row" style="--sev:var(--contained)"><span class="name">Scoped</span><span class="what">named resources</span></div>
+      <div class="row" style="--sev:var(--elevated)"><span class="name">Write</span><span class="what">changes what you own</span></div>
+      <div class="row" style="--sev:var(--total)"><span class="name">Admin</span><span class="what">deletes and administers</span></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span class="tag">HuggingFace and GitHub access tokens</span>
+    <span class="url">hf-analyzer.devanghacks.in</span>
+  </div>
+</body></html>
