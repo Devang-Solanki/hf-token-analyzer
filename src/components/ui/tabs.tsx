@@ -2,9 +2,18 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Tabs with the keyboard and screen-reader contract the pattern requires:
+ * a tablist, roving tabindex, arrow/Home/End navigation, and panels wired
+ * back to their trigger with aria-controls / aria-labelledby.
+ */
+
 interface TabsContextValue {
+  baseId: string
   value: string
   onValueChange: (value: string) => void
+  register: (value: string) => void
+  order: string[]
 }
 
 const TabsContext = React.createContext<TabsContextValue | undefined>(undefined)
@@ -17,6 +26,9 @@ function useTabs() {
   return context
 }
 
+const triggerId = (baseId: string, value: string) => `${baseId}-trigger-${value}`
+const panelId = (baseId: string, value: string) => `${baseId}-panel-${value}`
+
 interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
   value?: string
   defaultValue?: string
@@ -25,19 +37,42 @@ interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const Tabs = React.forwardRef<HTMLDivElement, TabsProps>(
   ({ className, value, defaultValue, onValueChange, children, ...props }, ref) => {
+    const baseId = React.useId()
     const [internalValue, setInternalValue] = React.useState(defaultValue || "")
-    
+    const orderRef = React.useRef<string[]>([])
+
     const currentValue = value !== undefined ? value : internalValue
-    const handleValueChange = React.useCallback((newValue: string) => {
-      if (value === undefined) {
-        setInternalValue(newValue)
+
+    const handleValueChange = React.useCallback(
+      (newValue: string) => {
+        if (value === undefined) {
+          setInternalValue(newValue)
+        }
+        onValueChange?.(newValue)
+      },
+      [value, onValueChange]
+    )
+
+    const register = React.useCallback((tabValue: string) => {
+      if (!orderRef.current.includes(tabValue)) {
+        orderRef.current.push(tabValue)
       }
-      onValueChange?.(newValue)
-    }, [value, onValueChange])
+    }, [])
+
+    const context = React.useMemo(
+      () => ({
+        baseId,
+        value: currentValue,
+        onValueChange: handleValueChange,
+        register,
+        order: orderRef.current,
+      }),
+      [baseId, currentValue, handleValueChange, register]
+    )
 
     return (
-      <TabsContext.Provider value={{ value: currentValue, onValueChange: handleValueChange }}>
-        <div ref={ref} className={cn("", className)} {...props}>
+      <TabsContext.Provider value={context}>
+        <div ref={ref} className={className} {...props}>
           {children}
         </div>
       </TabsContext.Provider>
@@ -48,14 +83,13 @@ Tabs.displayName = "Tabs"
 
 const TabsList = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
+  React.HTMLAttributes<HTMLDivElement> & { label: string }
+>(({ className, label, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn(
-      "inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
-      className
-    )}
+    role="tablist"
+    aria-label={label}
+    className={cn("flex flex-wrap items-stretch gap-1", className)}
     {...props}
   />
 ))
@@ -66,22 +100,64 @@ interface TabsTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement>
 }
 
 const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
-  ({ className, value, ...props }, ref) => {
-    const { value: selectedValue, onValueChange } = useTabs()
+  ({ className, value, onKeyDown, ...props }, ref) => {
+    const { baseId, value: selectedValue, onValueChange, register, order } = useTabs()
     const isSelected = selectedValue === value
+
+    React.useEffect(() => {
+      register(value)
+    }, [register, value])
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      onKeyDown?.(event)
+      if (event.defaultPrevented) return
+
+      const index = order.indexOf(value)
+      if (index === -1) return
+
+      let next: string | undefined
+      switch (event.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          next = order[(index + 1) % order.length]
+          break
+        case "ArrowLeft":
+        case "ArrowUp":
+          next = order[(index - 1 + order.length) % order.length]
+          break
+        case "Home":
+          next = order[0]
+          break
+        case "End":
+          next = order[order.length - 1]
+          break
+        default:
+          return
+      }
+
+      if (!next) return
+      event.preventDefault()
+      onValueChange(next)
+      const target = document.getElementById(triggerId(baseId, next))
+      target?.focus()
+    }
 
     return (
       <button
         ref={ref}
+        id={triggerId(baseId, value)}
         type="button"
         role="tab"
         aria-selected={isSelected}
+        aria-controls={panelId(baseId, value)}
+        tabIndex={isSelected ? 0 : -1}
         onClick={() => onValueChange(value)}
+        onKeyDown={handleKeyDown}
         className={cn(
-          "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+          "rounded-md px-3 py-2 text-sm font-medium transition-colors",
           isSelected
-            ? "bg-background text-foreground shadow-sm"
-            : "hover:bg-background/50",
+            ? "bg-foreground text-background"
+            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
           className
         )}
         {...props}
@@ -97,8 +173,8 @@ interface TabsContentProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const TabsContent = React.forwardRef<HTMLDivElement, TabsContentProps>(
   ({ className, value, ...props }, ref) => {
-    const { value: selectedValue } = useTabs()
-    
+    const { baseId, value: selectedValue } = useTabs()
+
     if (selectedValue !== value) {
       return null
     }
@@ -106,11 +182,11 @@ const TabsContent = React.forwardRef<HTMLDivElement, TabsContentProps>(
     return (
       <div
         ref={ref}
+        id={panelId(baseId, value)}
         role="tabpanel"
-        className={cn(
-          "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          className
-        )}
+        aria-labelledby={triggerId(baseId, value)}
+        tabIndex={0}
+        className={className}
         {...props}
       />
     )

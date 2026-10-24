@@ -47,6 +47,12 @@ export interface UserRepositories {
   models: ModelRepository[];
   datasets: DatasetRepository[];
   spaces: SpaceRepository[];
+  /**
+   * True when a listing stopped before the end - a page cap, a failed request, or
+   * a `Link` header the browser could not read. Counts are then a floor, not a
+   * total, and the UI must say so rather than under-report the token's reach.
+   */
+  truncated: boolean;
 }
 
 export interface TokenScope {

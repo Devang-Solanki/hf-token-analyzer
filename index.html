@@ -2,16 +2,116 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Favicon for all browsers including Firefox -->
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/logo.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/logo.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HuggingFace Token Analyzer</title>
-    <meta name="description" content="Analyze your HuggingFace API token permissions and capabilities - 100% client-side, no data sent to servers" />
-    <!-- Umami Analytics -->
-    <script defer src="https://cloud.umami.is/script.js" data-website-id="1d990739-7749-4ea8-ba32-2bba08af031b"></script>
+
+    <title>Token Analyzer — Check API Token Permissions and Blast Radius</title>
+    <meta
+      name="description"
+      content="See what a HuggingFace or GitHub access token can reach: permissions, organizations and writable repositories. Runs entirely in your browser."
+    />
+    <link rel="canonical" href="https://hf-analyzer.devanghacks.in/" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="author" content="Devang Solanki" />
+
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#f1f3f2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#12161a" media="(prefers-color-scheme: dark)" />
+
+    <!-- Social cards. og:title is the page's own question, which is what the
+         share image shows, so the card reads as one thought. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Token Analyzer" />
+    <meta property="og:title" content="What can this token do?" />
+    <meta
+      property="og:description"
+      content="See what a HuggingFace or GitHub access token can reach: permissions, organizations and writable repositories. Runs entirely in your browser."
+    />
+    <meta property="og:url" content="https://hf-analyzer.devanghacks.in/" />
+    <meta property="og:image" content="https://hf-analyzer.devanghacks.in/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Token Analyzer: the four verdicts a token can land in, from read-only through admin."
+    />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@devangsolankii" />
+    <meta name="twitter:creator" content="@devangsolankii" />
+    <meta name="twitter:title" content="What can this token do?" />
+    <meta
+      name="twitter:description"
+      content="See what a HuggingFace or GitHub access token can reach: permissions, organizations and writable repositories. Runs entirely in your browser."
+    />
+    <meta name="twitter:image" content="https://hf-analyzer.devanghacks.in/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="Token Analyzer: the four verdicts a token can land in, from read-only through admin."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Token Analyzer",
+        "alternateName": "HuggingFace & GitHub Token Analyzer",
+        "url": "https://hf-analyzer.devanghacks.in/",
+        "description": "Analyses a HuggingFace or GitHub access token in the browser and reports what it can reach: its permissions, the organizations it touches and the repositories it can change.",
+        "applicationCategory": "SecurityApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": {
+          "@type": "Person",
+          "name": "Devang Solanki",
+          "url": "https://github.com/Devang-Solanki"
+        },
+        "license": "https://www.gnu.org/licenses/gpl-3.0.en.html",
+        "featureList": [
+          "HuggingFace access token analysis",
+          "GitHub personal access token analysis",
+          "Token permission and scope breakdown",
+          "Organization and repository reach",
+          "Runs entirely client-side"
+        ]
+      }
+    </script>
+
+    <!--
+      Resolve the theme before first paint. Without this the dark class lands in a
+      React effect and dark-mode users get a white flash on every load.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          var dark = stored
+            ? stored === 'dark'
+            : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* private mode or blocked storage: fall through to light */
+        }
+      })();
+    </script>
+
+    <!-- Anonymous page-view counts. Never receives the token. -->
+    <script
+      defer
+      src="https://cloud.umami.is/script.js"
+      data-website-id="1d990739-7749-4ea8-ba32-2bba08af031b"
+    ></script>
   </head>
   <body>
     <div id="root"></div>

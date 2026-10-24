@@ -1,100 +1,170 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { analyzeToken, formatDate, getTimeUntilExpiration, isTokenExpired, fetchUserRepositories, fetchScopedRepositories } from '@/services/tokenAnalyzer';
-import type { TokenAnalysis, UserRepositories, ModelRepository, DatasetRepository, SpaceRepository } from '@/types/huggingface';
+import { detectProvider, PROVIDERS } from '@/providers';
+import type {
+  AccountRef,
+  Expiry,
+  Finding,
+  Level,
+  PermissionEntry,
+  Provider,
+  ResourceGroup,
+  ResourceRef,
+  TokenReport,
+} from '@/providers';
+import { formatDate, timeUntil } from '@/lib/time';
 import {
-  User,
-  Building2,
-  Key,
-  Clock,
-  CheckCircle2,
-  XCircle,
   AlertTriangle,
+  Box,
+  Check,
+  Database,
+  Download,
   Eye,
   EyeOff,
+  FileCode2,
+  GitFork,
+  Globe,
+  Heart,
+  Info,
+  LayoutTemplate,
   Loader2,
   Lock,
-  Unlock,
-  Database,
-  Box,
-  MessageSquare,
-  CreditCard,
-  Users,
-  Crown,
-  FolderGit2,
-  Download,
-  Heart,
-  Globe,
-  LockKeyhole,
-  RefreshCw,
-  Sun,
+  Minus,
   Moon,
-  Shield,
-  Info
+  ShieldAlert,
+  ShieldCheck,
+  Star,
+  StickyNote,
+  Sun,
 } from 'lucide-react';
 
-interface SecurityFinding {
-  type: 'critical' | 'warning' | 'info' | 'good';
-  title: string;
-  description: string;
+const SEVERITY_CLASS: Record<Level, string> = {
+  contained: 'sev sev-contained',
+  elevated: 'sev sev-elevated',
+  breach: 'sev sev-breach',
+  total: 'sev sev-total',
+  info: 'sev',
+};
+
+const LEVEL_WORD: Record<Level, string> = {
+  total: 'Critical',
+  breach: 'Critical',
+  elevated: 'Worth fixing',
+  contained: 'Good',
+  info: 'For information',
+};
+
+interface Filters {
+  kinds: Set<string>;
+  visibility: Set<string>;
+  writableOnly: boolean;
+  gatedOnly: boolean;
+  query: string;
 }
 
-interface RepositoriesData {
-  personal: UserRepositories | null;
-  organizations: { [orgName: string]: UserRepositories };
+const EMPTY_FILTERS: Filters = {
+  kinds: new Set(),
+  visibility: new Set(),
+  writableOnly: false,
+  gatedOnly: false,
+  query: '',
+};
+
+/** The wording a provider uses, so a secret gist never reads as "Private". */
+function visibilityOf(resource: ResourceRef): string {
+  return resource.visibilityLabel ?? (resource.private ? 'Private' : 'Public');
 }
+
+/** HuggingFace reports write access per owner; GitHub reports it per repository. */
+function isWritable(resource: ResourceRef, group: ResourceGroup): boolean {
+  return resource.writable ?? Boolean(group.writable);
+}
+
+function filtersActive(filters: Filters): boolean {
+  return (
+    filters.kinds.size > 0 ||
+    filters.visibility.size > 0 ||
+    filters.writableOnly ||
+    filters.gatedOnly ||
+    filters.query.trim() !== ''
+  );
+}
+
+const VERDICT_KEY: { level: Level; name: string; meaning: string }[] = [
+  { level: 'contained', name: 'Read-only', meaning: 'downloads what you can already see' },
+  { level: 'contained', name: 'Scoped', meaning: 'reaches only the resources it names' },
+  { level: 'elevated', name: 'Write', meaning: 'changes anything the account owns' },
+  { level: 'total', name: 'Admin', meaning: 'deletes repositories and manages organizations' },
+];
 
 function App() {
   const [token, setToken] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [analysis, setAnalysis] = useState<TokenAnalysis | null>(null);
-  const [repositories, setRepositories] = useState<RepositoriesData>({ personal: null, organizations: {} });
-  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
-  const [reposLoaded, setReposLoaded] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    // Check localStorage or system preference on initial load
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('theme');
-      if (stored) {
-        return stored === 'dark';
-      }
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
+  const [report, setReport] = useState<TokenReport | null>(null);
+  const [provider, setProvider] = useState<Provider | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [groups, setGroups] = useState<ResourceGroup[] | null>(null);
+  const [isListing, setIsListing] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [isDarkMode, setIsDarkMode] = useState(
+    () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+  );
+  const tokenInputRef = useRef<HTMLInputElement>(null);
 
-  // Apply dark mode class to document
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
+    document.documentElement.classList.toggle('dark', isDarkMode);
+    try {
+      localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+    } catch {
+      /* storage can be unavailable; the class is what matters */
     }
   }, [isDarkMode]);
 
-  const toggleDarkMode = useCallback(() => {
-    setIsDarkMode(prev => !prev);
-  }, []);
+  // Recognised from the token's format alone. Nothing is sent anywhere until
+  // the user asks for the analysis.
+  const detected = useMemo(() => (token.trim() ? detectProvider(token) : null), [token]);
 
   const handleAnalyze = useCallback(async () => {
-    if (!token.trim()) return;
-    
+    const value = token.trim();
+    if (!value) return;
+
+    const match = detectProvider(value);
+    if (!match) {
+      setReport(null);
+      setProvider(null);
+      setAnalysisError(
+        `That is not a token format this tool recognises. It reads ${PROVIDERS.map(
+          (p) => p.name
+        ).join(' and ')} tokens, and sends nothing anywhere until it recognises one.`
+      );
+      return;
+    }
+
     setIsLoading(true);
-    setReposLoaded(false);
-    setRepositories({ personal: null, organizations: {} });
+    setAnalysisError(null);
+    setGroups(null);
+    setListError(null);
+    setFilters(EMPTY_FILTERS);
+
     try {
-      const result = await analyzeToken(token);
-      setAnalysis(result);
+      const result = await match.analyze(value);
+      setProvider(match);
+      setReport(result.isValid ? result : null);
+      if (!result.isValid) {
+        setAnalysisError(result.error ?? 'This token could not be read.');
+      }
     } catch (error) {
-      console.error('Analysis failed:', error);
+      setReport(null);
+      setAnalysisError(
+        error instanceof Error
+          ? error.message
+          : 'Something went wrong reading the token. Check your connection and try again.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -102,1057 +172,1009 @@ function App() {
 
   const handleClear = useCallback(() => {
     setToken('');
-    setAnalysis(null);
-    setRepositories({ personal: null, organizations: {} });
-    setReposLoaded(false);
+    setReport(null);
+    setProvider(null);
+    setAnalysisError(null);
+    setGroups(null);
+    setListError(null);
+    setFilters(EMPTY_FILTERS);
+    tokenInputRef.current?.focus();
   }, []);
 
-  const loadRepositories = useCallback(async () => {
-    if (!analysis?.isValid || !analysis.user || !token) return;
-    
-    setIsLoadingRepos(true);
+  const handleList = useCallback(async () => {
+    if (!provider || !report) return;
+
+    setIsListing(true);
+    setListError(null);
     try {
-      // Always fetch repos by author (username + orgs) - this is how TruffleHog does it
-      // Fine-grained tokens scoped to a user/org entity grant access to ALL repos under that entity
-      const personalRepos = await fetchUserRepositories(token, analysis.user.name);
-      
-      // Fetch organization repositories
-      const orgRepos: { [orgName: string]: UserRepositories } = {};
-      for (const org of analysis.organizations) {
-        const repos = await fetchUserRepositories(token, org.name);
-        orgRepos[org.name] = repos;
-      }
-
-      // For fine-grained tokens, also fetch individually-scoped repos (model/dataset/space entities)
-      // These might be repos from other users/orgs that the token has explicit access to
-      if (analysis.tokenType === 'fineGrained' && analysis.fineGrainedScopes && analysis.fineGrainedScopes.length > 0) {
-        const scopedRepos = await fetchScopedRepositories(token, analysis.fineGrainedScopes);
-        
-        // Merge scoped repos into personal repos, deduplicating by ID
-        const existingModelIds = new Set(personalRepos.models.map(m => m.id));
-        const existingDatasetIds = new Set(personalRepos.datasets.map(d => d.id));
-        const existingSpaceIds = new Set(personalRepos.spaces.map(s => s.id));
-        
-        // Also check org repos for duplicates
-        Object.values(orgRepos).forEach(repos => {
-          repos.models.forEach(m => existingModelIds.add(m.id));
-          repos.datasets.forEach(d => existingDatasetIds.add(d.id));
-          repos.spaces.forEach(s => existingSpaceIds.add(s.id));
-        });
-        
-        // Add only repos not already found via author search
-        for (const model of scopedRepos.models) {
-          if (!existingModelIds.has(model.id)) {
-            personalRepos.models.push(model);
-          }
-        }
-        for (const dataset of scopedRepos.datasets) {
-          if (!existingDatasetIds.has(dataset.id)) {
-            personalRepos.datasets.push(dataset);
-          }
-        }
-        for (const space of scopedRepos.spaces) {
-          if (!existingSpaceIds.has(space.id)) {
-            personalRepos.spaces.push(space);
-          }
-        }
-      }
-      
-      setRepositories({
-        personal: personalRepos,
-        organizations: orgRepos,
-      });
-      setReposLoaded(true);
+      setGroups(await provider.listResources(token, report));
     } catch (error) {
-      console.error('Failed to load repositories:', error);
+      setListError(
+        error instanceof Error
+          ? `Could not list repositories: ${error.message}`
+          : 'Could not list repositories. Check your connection and try again.'
+      );
     } finally {
-      setIsLoadingRepos(false);
+      setIsListing(false);
     }
-  }, [analysis, token]);
+  }, [provider, report, token]);
 
-  const getTokenTypeBadge = (tokenType: TokenAnalysis['tokenType']) => {
-    switch (tokenType) {
-      case 'god':
-        return <Badge className="bg-purple-500 hover:bg-purple-600"><Crown className="w-3 h-3 mr-1" /> Admin</Badge>;
-      case 'write':
-        return <Badge className="bg-blue-500 hover:bg-blue-600"><Unlock className="w-3 h-3 mr-1" /> Write</Badge>;
-      case 'read':
-        return <Badge variant="secondary"><Lock className="w-3 h-3 mr-1" /> Read</Badge>;
-      case 'fineGrained':
-        return <Badge className="bg-orange-500 hover:bg-orange-600"><Key className="w-3 h-3 mr-1" /> Fine-Grained</Badge>;
-      default:
-        return <Badge variant="outline">Unknown</Badge>;
-    }
-  };
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter' && token.trim() && !isLoading) {
+        handleAnalyze();
+      }
+    },
+    [token, isLoading, handleAnalyze]
+  );
 
-  const getTotalRepoCount = () => {
-    let total = 0;
-    if (repositories.personal) {
-      total += repositories.personal.models.length + 
-               repositories.personal.datasets.length + 
-               repositories.personal.spaces.length;
+  const totals = useMemo(() => {
+    if (!groups) return null;
+    return {
+      count: groups.reduce((sum, group) => sum + group.resources.length, 0),
+      truncated: groups.some((group) => group.truncated),
+    };
+  }, [groups]);
+
+  const facets = useMemo(() => {
+    const kinds = new Map<string, number>();
+    const visibility = new Map<string, number>();
+    let writable = 0;
+    let gated = 0;
+
+    for (const group of groups ?? []) {
+      for (const resource of group.resources) {
+        kinds.set(resource.kind, (kinds.get(resource.kind) ?? 0) + 1);
+        const label = visibilityOf(resource);
+        visibility.set(label, (visibility.get(label) ?? 0) + 1);
+        if (isWritable(resource, group)) writable += 1;
+        if (resource.gated) gated += 1;
+      }
     }
-    Object.values(repositories.organizations).forEach(repos => {
-      total += repos.models.length + repos.datasets.length + repos.spaces.length;
+
+    return { kinds: [...kinds], visibility: [...visibility], writable, gated };
+  }, [groups]);
+
+  const filtered = useMemo(() => {
+    if (!groups) return null;
+    const query = filters.query.trim().toLowerCase();
+
+    return groups
+      .map((group) => ({
+        group,
+        resources: group.resources.filter(
+          (resource) =>
+            (filters.kinds.size === 0 || filters.kinds.has(resource.kind)) &&
+            (filters.visibility.size === 0 ||
+              filters.visibility.has(visibilityOf(resource))) &&
+            (!filters.writableOnly || isWritable(resource, group)) &&
+            (!filters.gatedOnly || Boolean(resource.gated)) &&
+            (query === '' || resource.id.toLowerCase().includes(query))
+        ),
+      }))
+      .filter((entry) => entry.resources.length > 0);
+  }, [groups, filters]);
+
+  const shown = filtered?.reduce((sum, entry) => sum + entry.resources.length, 0) ?? 0;
+
+  const toggleFacet = useCallback((key: 'kinds' | 'visibility', value: string) => {
+    setFilters((prev) => {
+      const next = new Set(prev[key]);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return { ...prev, [key]: next };
     });
-    return total;
-  };
+  }, []);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && token.trim() && !isLoading) {
-      handleAnalyze();
-    }
-  }, [token, isLoading, handleAnalyze]);
-
-  const getSecurityFindings = useCallback((): SecurityFinding[] => {
-    if (!analysis?.isValid) return [];
-    
-    const findings: SecurityFinding[] = [];
-    
-    // Check for admin/god token (critical)
-    if (analysis.tokenType === 'god') {
-      findings.push({
-        type: 'critical',
-        title: 'Admin Token Detected',
-        description: 'This token has full administrative access. It can perform any action including deleting repositories and managing organizations. Use with extreme caution and consider using a more restricted token.'
-      });
-    }
-    
-    // Check for no expiration (warning)
-    if (!analysis.expiresAt) {
-      findings.push({
-        type: 'warning',
-        title: 'Token Never Expires',
-        description: 'This token has no expiration date. Consider setting an expiration for better security practices. Tokens without expiration pose a higher risk if compromised.'
-      });
-    }
-    
-    // Check if token is expired (critical)
-    if (analysis.expiresAt && isTokenExpired(analysis.expiresAt)) {
-      findings.push({
-        type: 'critical',
-        title: 'Token Expired',
-        description: 'This token has expired and will not work for API requests. Please generate a new token.'
-      });
-    }
-    
-    // Check for write access (info)
-    if (analysis.tokenType === 'write') {
-      findings.push({
-        type: 'info',
-        title: 'Write Access Token',
-        description: 'This token can create, modify, and delete repositories. Ensure this level of access is necessary for your use case.'
-      });
-    }
-    
-    // Check for organization security restrictions
-    const orgsWithRestrictions = analysis.organizations.filter(
-      org => org.securityRestrictions && org.securityRestrictions.length > 0
-    );
-    if (orgsWithRestrictions.length > 0) {
-      const restrictionTypes = new Set<string>();
-      orgsWithRestrictions.forEach(org => {
-        org.securityRestrictions?.forEach(r => restrictionTypes.add(r));
-      });
-      findings.push({
-        type: 'warning',
-        title: 'Organization Security Restrictions',
-        description: `${orgsWithRestrictions.length} organization(s) have security restrictions that may limit this token's access: ${Array.from(restrictionTypes).join(', ')}. You may need to satisfy these requirements (MFA, SSO, IP allowlist, or token policy) to access organization resources.`
-      });
-    }
-    
-    // Check for fine-grained token with gated repo access
-    if (analysis.tokenType === 'fineGrained') {
-      const hasGatedAccess = analysis.permissions.canAccessGatedRepos;
-      if (hasGatedAccess) {
-        findings.push({
-          type: 'info',
-          title: 'Gated Repository Access',
-          description: 'This fine-grained token can access gated repositories that you have been granted access to.'
-        });
-      }
-      
-      // Check scope count
-      const scopeCount = analysis.fineGrainedScopes?.length || 0;
-      if (scopeCount > 10) {
-        findings.push({
-          type: 'info',
-          title: 'Multiple Scoped Resources',
-          description: `This token has access to ${scopeCount} specific resources. Consider if all these scopes are necessary.`
-        });
-      }
-    }
-    
-    // Good findings
-    if (analysis.tokenType === 'read') {
-      findings.push({
-        type: 'good',
-        title: 'Read-Only Token',
-        description: 'This token has read-only access, which is the most secure option for applications that only need to download models or datasets.'
-      });
-    }
-    
-    if (analysis.tokenType === 'fineGrained' && (analysis.fineGrainedScopes?.length || 0) <= 5) {
-      findings.push({
-        type: 'good',
-        title: 'Limited Scope Token',
-        description: 'This fine-grained token has a limited number of scopes, following the principle of least privilege.'
-      });
-    }
-    
-    if (analysis.expiresAt && !isTokenExpired(analysis.expiresAt)) {
-      findings.push({
-        type: 'good',
-        title: 'Token Has Expiration',
-        description: 'This token has an expiration date set, which is a good security practice.'
-      });
-    }
-    
-    return findings;
-  }, [analysis]);
+  const needsAttention = report
+    ? report.findings.filter(
+        (f) => f.level === 'breach' || f.level === 'total' || f.level === 'elevated'
+      ).length
+    : 0;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8 max-w-5xl">
-        {/* Dark Mode Toggle */}
-        <div className="flex justify-end mb-4">
+    <div className="flex min-h-screen flex-col bg-background">
+      <a
+        href="#results"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background"
+      >
+        Skip to results
+      </a>
+
+      <header className="border-b border-rule">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <img src="/logo.png" alt="" width="28" height="26" className="h-7 w-auto" />
+            <span className="text-[0.9375rem] font-medium tracking-tight">Token Analyzer</span>
+          </div>
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
-            onClick={toggleDarkMode}
-            className="rounded-full"
-            title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            onClick={() => setIsDarkMode((prev) => !prev)}
+            aria-label={isDarkMode ? 'Switch to light theme' : 'Switch to dark theme'}
           >
-            {isDarkMode ? (
-              <Sun className="h-5 w-5 text-yellow-500" />
-            ) : (
-              <Moon className="h-5 w-5" />
-            )}
+            {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </Button>
         </div>
+      </header>
 
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <img
-              src="/logo.png"
-              alt="HuggingFace Token Analyzer Logo"
-              className="w-12 h-12 object-contain"
-            />
-            <h1 className="text-3xl font-bold text-foreground">
-              HuggingFace Token Analyzer
-            </h1>
-          </div>
-          <p className="text-muted-foreground max-w-2xl mx-auto">
-            Analyze your HuggingFace API token to understand its permissions and capabilities.
-            <span className="block mt-1 text-sm font-medium text-green-600 dark:text-green-400">
-              🔒 100% client-side - your token never leaves your browser
-            </span>
-          </p>
-        </div>
+      <main className="mx-auto w-full max-w-4xl flex-1 px-4 pb-20 sm:px-6">
+        <section className={report ? 'pt-8' : 'pt-10 sm:pt-14'}>
+          {!report && (
+            <>
+              <h1 className="max-w-[20ch] text-[clamp(1.875rem,5vw,2.75rem)] font-bold leading-[1.08] tracking-[-0.02em]">
+                What can this token do?
+              </h1>
+              <p className="prose-width mt-4 text-[0.9375rem] leading-relaxed text-muted-foreground">
+                Paste a {PROVIDERS.map((p) => p.name).join(' or ')} access token to see its
+                permissions, the accounts it reaches and the repositories it can change. The token
+                is read in your browser and sent only to the service it belongs to.
+              </p>
+            </>
+          )}
 
-        {/* Token Input */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Key className="w-5 h-5" />
-              Enter Your Token
-            </CardTitle>
-            <CardDescription>
-              Paste your HuggingFace API token below. Get one from{' '}
-              <a
-                href="https://huggingface.co/settings/tokens"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline font-medium"
-              >
-                huggingface.co/settings/tokens
-              </a>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2">
+          <div className={`max-w-xl ${report ? '' : 'mt-8'}`}>
+            <label htmlFor="token" className="block text-sm font-medium">
+              Access token
+            </label>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <div className="relative flex-1">
                 <Input
+                  id="token"
+                  ref={tokenInputRef}
                   type={showToken ? 'text' : 'password'}
-                  placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="hf_... or ghp_..."
                   value={token}
-                  onChange={(e) => setToken(e.target.value)}
+                  onChange={(event) => setToken(event.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="pr-10 font-mono"
+                  className="pr-11 font-mono"
+                  aria-describedby="token-hint"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowToken(!showToken)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowToken((prev) => !prev)}
+                  aria-label={showToken ? 'Hide token' : 'Show token'}
+                  aria-pressed={showToken}
+                  className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
                 >
-                  {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <Button onClick={handleAnalyze} disabled={isLoading || !token.trim()}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  'Analyze'
-                )}
-              </Button>
-              {analysis && (
-                <Button variant="outline" onClick={handleClear}>
-                  Clear
+              <div className="flex gap-2">
+                <Button onClick={handleAnalyze} disabled={isLoading || !token.trim()}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      Analyzing
+                    </>
+                  ) : (
+                    'Analyze token'
+                  )}
                 </Button>
-              )}
+                {(report || analysisError) && (
+                  <Button variant="outline" onClick={handleClear}>
+                    Clear
+                  </Button>
+                )}
+              </div>
             </div>
-          </CardContent>
-        </Card>
+            <p id="token-hint" className="mt-2.5 text-[0.8125rem] text-muted-foreground">
+              {detected ? (
+                <>
+                  Recognised as a {detected.name} token. It will be sent to {detected.name} and
+                  nowhere else.
+                </>
+              ) : (
+                <>
+                  Reads{' '}
+                  {PROVIDERS.map((p, index) => (
+                    <span key={p.id}>
+                      {index > 0 && ' and '}
+                      <a
+                        href={p.tokenUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline decoration-rule underline-offset-2 hover:decoration-current"
+                      >
+                        {p.name}
+                      </a>
+                    </span>
+                  ))}{' '}
+                  tokens.
+                </>
+              )}
+            </p>
+          </div>
 
-        {/* Analysis Results */}
-        {analysis && (
-          <div className="space-y-6">
-            {/* Status Alert */}
-            {analysis.isValid ? (
-              <Alert variant="success" className="border-green-500 bg-green-50 dark:bg-green-950">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-                <AlertTitle className="text-green-800 dark:text-green-200">Token Valid</AlertTitle>
-                <AlertDescription className="text-green-700 dark:text-green-300">
-                  Your token is valid and has been analyzed successfully.
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <Alert variant="destructive">
-                <XCircle className="h-4 w-4" />
-                <AlertTitle>Token Invalid</AlertTitle>
-                <AlertDescription>
-                  {analysis.error || 'The token could not be validated.'}
-                </AlertDescription>
-              </Alert>
-            )}
+          {!report && !analysisError && (
+            <div className="mt-14 section-rule pt-8">
+              <h2 className="max-w-[34ch] text-[1.0625rem] font-semibold tracking-tight">
+                Every token lands in one of four places.
+              </h2>
+              <ul className="mt-5 max-w-2xl">
+                {VERDICT_KEY.map(({ level, name, meaning }) => (
+                  <li
+                    key={name}
+                    className={`${SEVERITY_CLASS[level]} sev-rail flex flex-wrap items-baseline gap-x-3 gap-y-0.5 bg-card px-4 py-3`}
+                  >
+                    <span className="sev-text text-sm font-medium">{name}</span>
+                    <span className="text-sm text-muted-foreground">{meaning}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
 
-            {analysis.isValid && (
-              <Tabs defaultValue="overview">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="overview">Overview</TabsTrigger>
-                  <TabsTrigger value="permissions">Permissions</TabsTrigger>
-                  <TabsTrigger value="repositories">
-                    Repositories {reposLoaded && `(${getTotalRepoCount()})`}
+        <div id="results" className="scroll-mt-4">
+          {analysisError && (
+            <Notice level="breach" title="That token could not be read">
+              {analysisError}
+            </Notice>
+          )}
+
+          {report && (
+            <>
+              <section
+                className={`${SEVERITY_CLASS[report.verdict.level]} sev-rail mt-12 bg-card px-5 py-6 shadow-lifted sm:px-7 sm:py-8`}
+                aria-labelledby="verdict"
+              >
+                <p className="data-label">{report.providerName}</p>
+                <h2
+                  id="verdict"
+                  className="sev-text mt-1 text-[clamp(1.5rem,3.6vw,2.125rem)] font-bold leading-[1.1] tracking-[-0.02em]"
+                >
+                  {report.verdict.headline}
+                </h2>
+                <p className="prose-width mt-3 text-[0.9375rem] leading-relaxed">
+                  <Prose text={report.verdict.summary} />
+                </p>
+
+                <dl className="mt-7 grid grid-cols-1 gap-x-8 gap-y-4 border-t border-rule pt-6 sm:grid-cols-2 lg:grid-cols-4">
+                  <Datum label="Type">{report.tokenKind}</Datum>
+                  <Datum label="Expires">
+                    <ExpiryValue expiry={report.expiry} />
+                  </Datum>
+                  <Datum label="Organizations">
+                    <span className="mono">{report.accounts.length}</span>
+                  </Datum>
+                  <Datum label="Resources reached">
+                    {totals ? (
+                      <span className="mono">
+                        {totals.count}
+                        {totals.truncated ? '+' : ''}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Not listed yet</span>
+                    )}
+                  </Datum>
+                </dl>
+              </section>
+
+              {report.identity && (
+                <section className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-3">
+                  <Avatar src={report.identity.avatarUrl} className="h-11 w-11 rounded-full" />
+                  <div className="min-w-0">
+                    <a
+                      href={report.identity.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium underline decoration-rule underline-offset-2 hover:decoration-current"
+                    >
+                      {report.identity.fullname || report.identity.handle}
+                    </a>
+                    <p className="mono text-muted-foreground">@{report.identity.handle}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {report.identity.badges.map((badge) => (
+                      <Badge key={badge}>{badge}</Badge>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <Tabs defaultValue="findings" className="mt-10">
+                <TabsList label="Token analysis sections" className="border-b border-rule pb-2">
+                  <TabsTrigger value="findings">
+                    Findings{needsAttention > 0 ? ` (${needsAttention})` : ''}
                   </TabsTrigger>
+                  <TabsTrigger value="permissions">Permissions</TabsTrigger>
+                  <TabsTrigger value="access">Access</TabsTrigger>
                 </TabsList>
 
-                {/* Overview Tab */}
-                <TabsContent value="overview" className="space-y-4">
-                  {/* Token Info */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Key className="w-5 h-5" />
-                        Token Information
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm text-muted-foreground">Token Name</p>
-                          <p className="font-medium">{analysis.tokenName || 'Unnamed Token'}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Token Type</p>
-                          <div className="mt-1">{getTokenTypeBadge(analysis.tokenType)}</div>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Created</p>
-                          <p className="font-medium flex items-center gap-1">
-                            <Clock className="w-4 h-4" />
-                            {formatDate(analysis.createdAt)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Expires</p>
-                          <p className="font-medium flex items-center gap-1">
-                            {analysis.expiresAt ? (
-                              <>
-                                {isTokenExpired(analysis.expiresAt) ? (
-                                  <AlertTriangle className="w-4 h-4 text-red-500" />
-                                ) : (
-                                  <Clock className="w-4 h-4" />
-                                )}
-                                {getTimeUntilExpiration(analysis.expiresAt)}
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                Never expires
-                              </>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                <TabsContent value="findings" className="pt-8">
+                  <SectionHead
+                    title="Findings"
+                    note={
+                      needsAttention > 0
+                        ? `${needsAttention} worth acting on`
+                        : 'Nothing needs attention'
+                    }
+                  />
+                  <ul className="mt-5 space-y-px">
+                    {report.findings.map((finding) => (
+                      <FindingRow key={finding.title} finding={finding} />
+                    ))}
+                  </ul>
 
-                  {/* Security Analysis */}
-                  {(() => {
-                    const findings = getSecurityFindings();
-                    const criticalCount = findings.filter(f => f.type === 'critical').length;
-                    const warningCount = findings.filter(f => f.type === 'warning').length;
-                    
-                    return findings.length > 0 ? (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Shield className="w-5 h-5" />
-                            Security Analysis
-                          </CardTitle>
-                          <CardDescription>
-                            {criticalCount > 0 ? (
-                              <span className="text-destructive">{criticalCount} issue(s) need attention</span>
-                            ) : warningCount > 0 ? (
-                              <span>{warningCount} recommendation(s)</span>
-                            ) : (
-                              <span>No security concerns found</span>
-                            )}
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-2">
-                            {findings.map((finding, index) => (
-                              <div
-                                key={index}
-                                className="flex items-start gap-3 p-3 rounded-lg border bg-secondary/30"
-                              >
-                                <div className="mt-0.5">
-                                  {finding.type === 'critical' ? (
-                                    <XCircle className="w-4 h-4 text-destructive" />
-                                  ) : finding.type === 'warning' ? (
-                                    <AlertTriangle className="w-4 h-4 text-muted-foreground" />
-                                  ) : finding.type === 'good' ? (
-                                    <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
-                                  ) : (
-                                    <Info className="w-4 h-4 text-muted-foreground" />
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className={`font-medium text-sm ${finding.type === 'critical' ? 'text-destructive' : 'text-foreground'}`}>
-                                    {finding.title}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground mt-0.5">
-                                    {finding.description}
-                                  </p>
-                                </div>
-                                <Badge
-                                  variant={finding.type === 'critical' ? 'destructive' : finding.type === 'good' ? 'secondary' : 'outline'}
-                                  className="text-xs shrink-0"
-                                >
-                                  {finding.type === 'critical' ? 'Critical' : finding.type === 'warning' ? 'Warning' : finding.type === 'good' ? 'Good' : 'Info'}
-                                </Badge>
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ) : null;
-                  })()}
-
-                  {/* User Info */}
-                  {analysis.user && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <User className="w-5 h-5" />
-                          User Information
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <a
-                          href={`https://huggingface.co/${analysis.user.name}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-start gap-4 hover:bg-accent rounded-lg p-2 -m-2 transition-colors"
-                        >
-                          <div className="flex-shrink-0">
-                            {analysis.user.avatarUrl ? (
-                              <img
-                                src={analysis.user.avatarUrl}
-                                alt={analysis.user.name}
-                                className="w-16 h-16 rounded-full border-2 border-border object-cover"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.style.display = 'none';
-                                  target.nextElementSibling?.classList.remove('hidden');
-                                }}
-                              />
-                            ) : null}
-                            <div className={`w-16 h-16 rounded-full border-2 border-border bg-muted flex items-center justify-center ${analysis.user.avatarUrl ? 'hidden' : ''}`}>
-                              <User className="w-8 h-8 text-muted-foreground" />
-                            </div>
-                          </div>
-                          <div className="flex-1 min-w-0 space-y-2">
-                            <div>
-                              <p className="font-semibold text-lg truncate">{analysis.user.fullname}</p>
-                              <p className="text-muted-foreground truncate">@{analysis.user.name}</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {analysis.user.isPro && (
-                                <Badge className="bg-gradient-to-r from-yellow-400 to-orange-500">
-                                  <Crown className="w-3 h-3 mr-1" /> PRO
-                                </Badge>
-                              )}
-                              {analysis.user.emailVerified && (
-                                <Badge variant="secondary">
-                                  <CheckCircle2 className="w-3 h-3 mr-1" /> Email Verified
-                                </Badge>
-                              )}
-                              {analysis.user.canPay && (
-                                <Badge variant="outline">
-                                  <CreditCard className="w-3 h-3 mr-1" /> Billing Enabled
-                                </Badge>
-                              )}
-                            </div>
-                            {analysis.user.email && (
-                              <p className="text-sm text-muted-foreground truncate">{analysis.user.email}</p>
-                            )}
-                          </div>
-                        </a>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Organizations Section */}
-                  {analysis.organizations.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Building2 className="w-5 h-5" />
-                          Organizations ({analysis.organizations.length})
-                        </CardTitle>
-                        <CardDescription>
-                          Organizations this token has access to
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          {analysis.organizations.map((org) => (
-                            <a
-                              key={org.id}
-                              href={`https://huggingface.co/${org.name}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-start gap-4 p-4 border rounded-lg hover:bg-accent transition-colors"
-                            >
-                              <div className="flex-shrink-0">
-                                <img
-                                  src={org.avatarUrl}
-                                  alt={org.name}
-                                  className="w-12 h-12 rounded-lg object-cover"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    target.nextElementSibling?.classList.remove('hidden');
-                                  }}
-                                />
-                                <div className="w-12 h-12 rounded-lg bg-muted hidden items-center justify-center">
-                                  <Building2 className="w-6 h-6 text-muted-foreground" />
-                                </div>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="font-semibold truncate">{org.fullname}</p>
-                                  {org.isEnterprise && (
-                                    <Badge className="bg-purple-500">Enterprise</Badge>
-                                  )}
-                                  {org.plan && (
-                                    <Badge variant="outline">{org.plan}</Badge>
-                                  )}
-                                </div>
-                                <p className="text-sm text-muted-foreground truncate">@{org.name}</p>
-                                {org.roleInOrg && (
-                                  <div className="mt-2">
-                                    <Badge variant="secondary">
-                                      Role: {org.roleInOrg}
-                                    </Badge>
-                                  </div>
-                                )}
-                                {org.securityRestrictions && org.securityRestrictions.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-1">
-                                    {org.securityRestrictions.map((restriction) => (
-                                      <Badge key={restriction} variant="outline" className="text-xs">
-                                        <AlertTriangle className="w-3 h-3 mr-1" />
-                                        {restriction}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </a>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                </TabsContent>
-
-                {/* Permissions Tab */}
-                <TabsContent value="permissions" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Shield className="w-5 h-5" />
-                        Token Permissions
-                      </CardTitle>
-                      <CardDescription>
-                        What this token can and cannot do
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <PermissionItem
-                          icon={<Box className="w-4 h-4" />}
-                          label="Read Models"
-                          allowed={analysis.permissions.canReadModels}
-                        />
-                        <PermissionItem
-                          icon={<Box className="w-4 h-4" />}
-                          label="Write Models"
-                          allowed={analysis.permissions.canWriteModels}
-                        />
-                        <PermissionItem
-                          icon={<Database className="w-4 h-4" />}
-                          label="Read Datasets"
-                          allowed={analysis.permissions.canReadDatasets}
-                        />
-                        <PermissionItem
-                          icon={<Database className="w-4 h-4" />}
-                          label="Write Datasets"
-                          allowed={analysis.permissions.canWriteDatasets}
-                        />
-                        <PermissionItem
-                          icon={<Box className="w-4 h-4" />}
-                          label="Read Spaces"
-                          allowed={analysis.permissions.canReadSpaces}
-                        />
-                        <PermissionItem
-                          icon={<Box className="w-4 h-4" />}
-                          label="Write Spaces"
-                          allowed={analysis.permissions.canWriteSpaces}
-                        />
-                        <PermissionItem
-                          icon={<Lock className="w-4 h-4" />}
-                          label="Access Gated Repos"
-                          allowed={analysis.permissions.canAccessGatedRepos}
-                        />
-                        <PermissionItem
-                          icon={<Key className="w-4 h-4" />}
-                          label="Manage Repositories"
-                          allowed={analysis.permissions.canManageRepos}
-                        />
-                        <PermissionItem
-                          icon={<MessageSquare className="w-4 h-4" />}
-                          label="Write Discussions"
-                          allowed={analysis.permissions.canWriteDiscussions}
-                        />
-                        <PermissionItem
-                          icon={<MessageSquare className="w-4 h-4" />}
-                          label="Write Posts"
-                          allowed={analysis.permissions.canWritePosts}
-                        />
-                        <PermissionItem
-                          icon={<CreditCard className="w-4 h-4" />}
-                          label="Access Billing"
-                          allowed={analysis.permissions.canAccessBilling}
-                        />
-                        <PermissionItem
-                          icon={<Users className="w-4 h-4" />}
-                          label="Manage Organizations"
-                          allowed={analysis.permissions.canManageOrgs}
-                        />
-                        <PermissionItem
-                          icon={<Crown className="w-4 h-4" />}
-                          label="Admin Access"
-                          allowed={analysis.permissions.isAdmin}
-                          highlight
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Fine-Grained Scopes Section */}
-                  {analysis.tokenType === 'fineGrained' && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Key className="w-5 h-5" />
-                          Fine-Grained Scopes
-                        </CardTitle>
-                        <CardDescription>
-                          Specific permissions granted to this fine-grained token
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          {/* Global Permissions */}
-                          {analysis.globalPermissions && analysis.globalPermissions.length > 0 && (
-                            <div>
-                              <h4 className="font-medium mb-2">Global Permissions</h4>
-                              <div className="flex flex-wrap gap-2">
-                                {analysis.globalPermissions.map((perm) => (
-                                  <Badge key={perm} variant="secondary">
-                                    {perm}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Scoped Permissions */}
-                          {analysis.fineGrainedScopes && analysis.fineGrainedScopes.length > 0 ? (
-                            <div>
-                              <h4 className="font-medium mb-2">Scoped Permissions</h4>
-                              <div className="space-y-3">
-                                {analysis.fineGrainedScopes.map((scope, index) => (
-                                  <div
-                                    key={index}
-                                    className="p-3 border rounded-lg"
-                                  >
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <Badge variant="outline">
-                                        {scope.entity.type}
-                                      </Badge>
-                                      <span className="font-medium">
-                                        {scope.entity.name || scope.entity._id}
-                                      </span>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {scope.permissions.map((perm) => (
-                                        <Badge key={perm} variant="secondary" className="text-xs">
-                                          {perm}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            !analysis.globalPermissions?.length && (
-                              <p className="text-muted-foreground text-center py-4">
-                                No scoped permissions found
-                              </p>
-                            )
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                </TabsContent>
-
-                {/* Repositories Tab */}
-                <TabsContent value="repositories">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <FolderGit2 className="w-5 h-5" />
-                        Repositories
-                      </CardTitle>
-                      <CardDescription>
-                        Models, datasets, and spaces accessible with this token
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {!reposLoaded ? (
-                        <div className="text-center py-8">
-                          <p className="text-muted-foreground mb-4">
-                            Click the button below to load all repositories accessible with this token.
-                          </p>
-                          <Button onClick={loadRepositories} disabled={isLoadingRepos}>
-                            {isLoadingRepos ? (
-                              <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Loading Repositories...
-                              </>
-                            ) : (
-                              <>
-                                <RefreshCw className="w-4 h-4 mr-2" />
-                                Load Repositories
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="space-y-6">
-                          {/* Personal repositories */}
-                          {repositories.personal && analysis.user && (
-                            <RepositorySection
-                              title={`Personal (@${analysis.user.name})`}
-                              icon={<User className="w-5 h-5" />}
-                              repositories={repositories.personal}
-                              canWrite={analysis.permissions.canWriteModels}
-                            />
-                          )}
-
-                          {/* Organization Repositories */}
-                          {Object.entries(repositories.organizations).map(([orgName, repos]) => {
-                            const org = analysis.organizations.find(o => o.name === orgName);
-                            const canWrite = org?.roleInOrg === 'admin' || org?.roleInOrg === 'write';
-                            return (
-                              <RepositorySection
-                                key={orgName}
-                                title={`${org?.fullname || orgName} (@${orgName})`}
-                                icon={<Building2 className="w-5 h-5" />}
-                                repositories={repos}
-                                canWrite={canWrite}
-                                orgRole={org?.roleInOrg}
-                              />
-                            );
-                          })}
-
-                          {getTotalRepoCount() === 0 && (
-                            <p className="text-muted-foreground text-center py-4">
-                              No repositories found
-                            </p>
-                          )}
-                        </div>
+                  <div className="mt-10 section-rule pt-6">
+                    <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+                      {report.tokenName && (
+                        <Datum label="Token name">
+                          <span className="mono">{report.tokenName}</span>
+                        </Datum>
                       )}
-                    </CardContent>
-                  </Card>
+                      <Datum label="Created">
+                        <span className="mono">{formatDate(report.createdAt)}</span>
+                      </Datum>
+                      <Datum label="Expires">
+                        <span className="mono">
+                          {report.expiry.kind === 'at'
+                            ? formatDate(report.expiry.iso)
+                            : report.expiry.kind === 'never'
+                              ? 'No expiry'
+                              : 'Not reported'}
+                        </span>
+                      </Datum>
+                      {report.identity?.email && (
+                        <Datum label="Account email">
+                          <span className="mono">{report.identity.email}</span>
+                        </Datum>
+                      )}
+                    </dl>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="permissions" className="pt-8">
+                  {report.permissions.length > 0 ? (
+                    <>
+                      <SectionHead
+                        title="Permissions"
+                        note="Highlighted rows are the ones that let this token change things"
+                      />
+                      <ul className="mt-5 grid grid-cols-1 gap-px sm:grid-cols-2">
+                        {report.permissions.map((permission, index) => (
+                          <PermissionRow
+                            key={permission.label}
+                            permission={permission}
+                            wide={
+                              index === report.permissions.length - 1 &&
+                              report.permissions.length % 2 === 1
+                            }
+                          />
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <SectionHead title="Permissions" note="Not reported by the provider" />
+                      {report.notes.map((note) => (
+                        <p
+                          key={note}
+                          className="prose-width mt-5 text-sm leading-relaxed text-muted-foreground"
+                        >
+                          {note} The repositories it opens are listed under Access, which is the
+                          only evidence of its reach available without probing each endpoint.
+                        </p>
+                      ))}
+                    </>
+                  )}
+
+                  {report.rawScopes.length > 0 && (
+                    <div className="mt-10 section-rule pt-6">
+                      <SectionHead
+                        title="Scopes"
+                        note="As the provider reports them, verbatim"
+                      />
+                      <div className="mt-5 flex flex-wrap gap-1.5">
+                        {report.rawScopes.map((scope) => (
+                          <Badge key={scope} className="mono">
+                            {scope}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {report.scopes.length > 0 && (
+                    <div className="mt-10 section-rule pt-6">
+                      <SectionHead title="Scoped resources" note="The exact targets this token names" />
+                      <ul className="mt-5 space-y-px">
+                        {report.scopes.map((scope) => (
+                          <li key={`${scope.kind}-${scope.label}`} className="bg-card px-4 py-3">
+                            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                              <span className="data-label">{scope.kind}</span>
+                              <span className="mono font-medium">{scope.label}</span>
+                              {scope.target === 'account' && (
+                                <Badge variant="elevated">Whole account</Badge>
+                              )}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {scope.permissions.map((perm) => (
+                                <Badge key={perm} className="mono">
+                                  {perm}
+                                </Badge>
+                              ))}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="access" className="pt-8">
+                  {report.accounts.length > 0 && (
+                    <div className="mb-10">
+                      <SectionHead
+                        title="Organizations"
+                        note={`${report.accounts.length} reachable`}
+                      />
+                      <ul className="mt-5 space-y-px">
+                        {report.accounts.map((account) => (
+                          <AccountRow key={account.handle} account={account} />
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <SectionHead
+                    title="Repositories"
+                    note="What this token can open"
+                  />
+
+                  {listError && (
+                    <Notice level="breach" title="Listing stopped early">
+                      {listError}
+                    </Notice>
+                  )}
+
+                  {!groups ? (
+                    <div className="mt-5 bg-card px-5 py-8">
+                      <p className="prose-width text-sm leading-relaxed text-muted-foreground">
+                        Listing repositories takes a few extra requests to {report.providerName}, so
+                        it runs only when you ask for it.
+                      </p>
+                      <Button onClick={handleList} disabled={isListing} className="mt-4">
+                        {isListing ? (
+                          <>
+                            <Loader2 className="animate-spin" />
+                            Listing repositories
+                          </>
+                        ) : (
+                          'List repositories'
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="mt-5 space-y-10">
+                      {totals && totals.truncated && (
+                        <Notice level="elevated" title="Counts are a floor, not a total">
+                          At least one listing stopped before the end, so this token may reach more
+                          than is shown here.
+                        </Notice>
+                      )}
+
+                      {(totals?.count ?? 0) > 0 && (
+                        <AccessFilters
+                          facets={facets}
+                          filters={filters}
+                          onToggle={toggleFacet}
+                          onQuery={(query) => setFilters((prev) => ({ ...prev, query }))}
+                          onFlag={(key, value) =>
+                            setFilters((prev) => ({ ...prev, [key]: value }))
+                          }
+                          onClear={() => setFilters(EMPTY_FILTERS)}
+                          shown={shown}
+                          total={totals?.count ?? 0}
+                        />
+                      )}
+
+                      {filtered?.map(({ group, resources }) => (
+                        <ResourceGroupSection
+                          key={group.owner}
+                          group={{ ...group, resources }}
+                          totalCount={group.resources.length}
+                        />
+                      ))}
+
+                      {(totals?.count ?? 0) > 0 && shown === 0 && (
+                        <p className="prose-width text-sm leading-relaxed text-muted-foreground">
+                          Nothing matches these filters.{' '}
+                          <button
+                            type="button"
+                            onClick={() => setFilters(EMPTY_FILTERS)}
+                            className="underline decoration-rule underline-offset-2 hover:decoration-current"
+                          >
+                            Show all {totals?.count ?? 0}
+                          </button>
+                          .
+                        </p>
+                      )}
+
+                      {(totals?.count ?? 0) === 0 && (
+                        <p className="prose-width text-sm leading-relaxed text-muted-foreground">
+                          This token did not open any repository. For a scoped token that usually
+                          means its scopes name resources that no longer exist, or that an
+                          organization restriction is blocking the request.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </TabsContent>
               </Tabs>
-            )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
+      </main>
 
-        {/* Footer */}
-        <footer className="mt-12 text-center text-sm text-muted-foreground">
+      <footer className="mt-auto border-t border-rule">
+        <div className="prose-width mx-auto max-w-4xl px-4 py-8 text-[0.8125rem] leading-relaxed text-muted-foreground sm:px-6">
           <p>
-            Built with ❤️ for the Security community.{' '}
+            Your token is read in the browser and sent only to the service it belongs to. This page
+            counts anonymous visits with Umami; that never includes your token or anything read
+            with it.
+          </p>
+          <p className="mt-2">
+            Built for the security community.{' '}
             <a
               href="https://github.com/Devang-Solanki/hf-token-analyzer"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:underline"
+              className="underline decoration-rule underline-offset-2 hover:decoration-current"
             >
-              View on GitHub
+              Source on GitHub
             </a>
           </p>
-          <p className="mt-1">
-            Your token is analyzed entirely in your browser. No data is sent to any server.
-          </p>
-        </footer>
-      </div>
+        </div>
+      </footer>
     </div>
   );
 }
 
-interface PermissionItemProps {
-  icon: React.ReactNode;
-  label: string;
-  allowed: boolean;
-  highlight?: boolean;
+/** Renders `backticked` fragments as inline code without a markdown dependency. */
+function Prose({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(`[^`]+`)/).map((part, index) =>
+        part.startsWith('`') && part.endsWith('`') ? (
+          <code key={index} className="mono rounded-sm bg-secondary px-1 py-0.5">
+            {part.slice(1, -1)}
+          </code>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
 }
 
-function PermissionItem({ icon, label, allowed, highlight }: PermissionItemProps) {
+function ExpiryValue({ expiry }: { expiry: Expiry }) {
+  if (expiry.kind === 'never') {
+    return <span className="sev sev-elevated sev-text font-medium">Never</span>;
+  }
+  if (expiry.kind === 'unknown') {
+    return <span className="text-muted-foreground">Not reported</span>;
+  }
+  const remaining = timeUntil(expiry.iso);
+  if (remaining === 'Expired') {
+    return <span className="sev sev-breach sev-text font-medium">Expired</span>;
+  }
+  return <span className="mono">{remaining}</span>;
+}
+
+function SeverityIcon({ level }: { level: Level }) {
+  const className = 'h-4 w-4 shrink-0 sev-text';
+  if (level === 'breach' || level === 'total') return <ShieldAlert className={className} />;
+  if (level === 'elevated') return <AlertTriangle className={className} />;
+  if (level === 'contained') return <ShieldCheck className={className} />;
+  return <Info className={className} />;
+}
+
+function FindingRow({ finding }: { finding: Finding }) {
+  return (
+    <li className={`${SEVERITY_CLASS[finding.level]} sev-rail bg-card px-4 py-4`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <SeverityIcon level={finding.level} />
+        <h4 className="font-medium">{finding.title}</h4>
+        <span className="ml-auto sev-chip">{LEVEL_WORD[finding.level]}</span>
+      </div>
+      <p className="prose-width mt-1.5 text-sm leading-relaxed text-muted-foreground">
+        <Prose text={finding.detail} />
+      </p>
+    </li>
+  );
+}
+
+function SectionHead({ title, note }: { title: string; note?: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <h3 className="text-[1.0625rem] font-semibold tracking-tight">{title}</h3>
+      {note && <p className="data-label">{note}</p>}
+    </div>
+  );
+}
+
+function Datum({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="data-label">{label}</dt>
+      <dd className="mt-1 break-words">{children}</dd>
+    </div>
+  );
+}
+
+function Notice({
+  level,
+  title,
+  children,
+}: {
+  level: Level;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div
-      className={`flex items-center gap-3 p-3 rounded-lg border ${
-        allowed
-          ? highlight
-            ? 'bg-purple-50 border-purple-200 dark:bg-purple-950 dark:border-purple-800'
-            : 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800'
-          : 'bg-secondary border-border'
-      }`}
+      role={level === 'breach' ? 'alert' : 'status'}
+      className={`${SEVERITY_CLASS[level]} sev-rail mt-6 bg-card px-4 py-4`}
     >
-      <div
-        className={`p-2 rounded-full ${
-          allowed
-            ? highlight
-              ? 'bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-400'
-              : 'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-400'
-            : 'bg-muted text-muted-foreground'
-        }`}
-      >
-        {icon}
+      <div className="flex items-center gap-2.5">
+        <SeverityIcon level={level} />
+        <h4 className="font-medium">{title}</h4>
       </div>
-      <span
-        className={`font-medium ${
-          allowed
-            ? highlight
-              ? 'text-purple-700 dark:text-purple-300'
-              : 'text-green-700 dark:text-green-300'
-            : 'text-muted-foreground'
-        }`}
-      >
-        {label}
-      </span>
-      <div className="ml-auto">
-        {allowed ? (
-          <CheckCircle2
-            className={`w-5 h-5 ${
-              highlight ? 'text-purple-500' : 'text-green-500'
-            }`}
-          />
-        ) : (
-          <XCircle className="w-5 h-5 text-muted-foreground" />
-        )}
-      </div>
+      <p className="prose-width mt-1.5 text-sm leading-relaxed text-muted-foreground">{children}</p>
     </div>
   );
 }
 
-interface RepositorySectionProps {
-  title: string;
-  icon: React.ReactNode;
-  repositories: UserRepositories;
-  canWrite?: boolean;
-  orgRole?: string;
-}
+/** Avatar with a graceful fallback when the image fails to load. */
+function Avatar({ src, className }: { src?: string; className: string }) {
+  const [failed, setFailed] = useState(!src);
 
-function RepositorySection({ title, icon, repositories, canWrite, orgRole }: RepositorySectionProps) {
-  const totalCount = repositories.models.length + repositories.datasets.length + repositories.spaces.length;
-  
-  if (totalCount === 0) {
-    return null;
+  if (failed) {
+    return <div className={`${className} bg-secondary`} aria-hidden="true" />;
   }
 
   return (
-    <div className="border rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-4">
-        {icon}
-        <h3 className="font-semibold text-lg">{title}</h3>
-        <Badge variant="outline" className="ml-auto">
-          {totalCount} repos
-        </Badge>
-        {orgRole && (
-          <Badge variant="secondary">
-            {orgRole}
-          </Badge>
-        )}
-        {canWrite && (
-          <Badge className="bg-blue-500">
-            <Unlock className="w-3 h-3 mr-1" /> Write Access
-          </Badge>
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      className={`${className} border border-rule object-cover`}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function PermissionRow({ permission, wide }: { permission: PermissionEntry; wide?: boolean }) {
+  const { label, allowed, risky } = permission;
+  const level: Level = allowed && risky ? 'elevated' : allowed ? 'contained' : 'info';
+
+  return (
+    <li
+      className={`${SEVERITY_CLASS[level]} flex items-center gap-3 bg-card px-4 py-3 ${
+        wide ? 'sm:col-span-2' : ''
+      } ${allowed ? '' : 'text-muted-foreground'}`}
+    >
+      {allowed ? (
+        <Check className="h-4 w-4 shrink-0 sev-text" />
+      ) : (
+        <Minus className="h-4 w-4 shrink-0" aria-hidden="true" />
+      )}
+      <span className={`text-sm ${allowed ? 'font-medium' : ''}`}>{label}</span>
+      <span className="sr-only">{allowed ? ': allowed' : ': not allowed'}</span>
+    </li>
+  );
+}
+
+function AccountRow({ account }: { account: AccountRef }) {
+  return (
+    <li>
+      <a
+        href={account.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-start gap-3.5 rounded-md bg-card px-4 py-4 hover:bg-secondary"
+      >
+        <Avatar src={account.avatarUrl} className="h-10 w-10 shrink-0 rounded-md" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            {account.fullname && <span className="truncate font-medium">{account.fullname}</span>}
+            <span className="mono text-muted-foreground">@{account.handle}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {account.role && <Badge>Your role: {account.role}</Badge>}
+            {account.badges.map((badge) => (
+              <Badge key={badge}>{badge}</Badge>
+            ))}
+            {account.warnings.map((warning) => (
+              <Badge key={warning} variant="elevated">
+                <AlertTriangle className="h-3 w-3" />
+                {warning}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </a>
+    </li>
+  );
+}
+
+function FilterChip({
+  active,
+  count,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  count?: number;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+        active
+          ? 'border-foreground bg-foreground text-background'
+          : 'border-rule text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {children}
+      {count !== undefined && <span className="mono text-[0.6875rem] opacity-70">{count}</span>}
+    </button>
+  );
+}
+
+function FacetDivider() {
+  return <span className="mx-1 h-5 w-px self-center bg-rule" aria-hidden="true" />;
+}
+
+interface Facets {
+  kinds: [string, number][];
+  visibility: [string, number][];
+  writable: number;
+  gated: number;
+}
+
+/**
+ * Filters are framed around the question people actually bring to a leaked
+ * credential - what is private, and what can it change - rather than being a
+ * plain taxonomy of the listing.
+ */
+function AccessFilters({
+  facets,
+  filters,
+  onToggle,
+  onQuery,
+  onFlag,
+  onClear,
+  shown,
+  total,
+}: {
+  facets: Facets;
+  filters: Filters;
+  onToggle: (key: 'kinds' | 'visibility', value: string) => void;
+  onQuery: (query: string) => void;
+  onFlag: (key: 'writableOnly' | 'gatedOnly', value: boolean) => void;
+  onClear: () => void;
+  shown: number;
+  total: number;
+}) {
+  const active = filtersActive(filters);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1 sm:max-w-xs">
+          <label htmlFor="resource-search" className="sr-only">
+            Filter by name
+          </label>
+          <Input
+            id="resource-search"
+            type="search"
+            placeholder="Filter by name"
+            value={filters.query}
+            onChange={(event) => onQuery(event.target.value)}
+            className="h-9 font-mono text-[0.8125rem]"
+          />
+        </div>
+        <p className="data-label" role="status">
+          {active ? `${shown} of ${total} shown` : `${total} in total`}
+        </p>
+        {active && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-[0.8125rem] text-muted-foreground underline decoration-rule underline-offset-2 hover:text-foreground hover:decoration-current"
+          >
+            Clear filters
+          </button>
         )}
       </div>
 
-      {/* Models */}
-      {repositories.models.length > 0 && (
-        <div className="mb-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
-            <Box className="w-4 h-4" />
-            Models ({repositories.models.length})
-          </h4>
-          <div className="grid gap-2">
-            {repositories.models.map((model) => (
-              <RepoCard key={model.id} repo={model} type="model" />
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="flex flex-wrap items-stretch gap-1.5">
+        {facets.kinds.map(([kind, count]) => (
+          <FilterChip
+            key={kind}
+            active={filters.kinds.has(kind)}
+            count={count}
+            onClick={() => onToggle('kinds', kind)}
+          >
+            {KIND_PLURAL[kind] ?? kind}
+          </FilterChip>
+        ))}
 
-      {/* Datasets */}
-      {repositories.datasets.length > 0 && (
-        <div className="mb-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
-            <Database className="w-4 h-4" />
-            Datasets ({repositories.datasets.length})
-          </h4>
-          <div className="grid gap-2">
-            {repositories.datasets.map((dataset) => (
-              <RepoCard key={dataset.id} repo={dataset} type="dataset" />
-            ))}
-          </div>
-        </div>
-      )}
+        {facets.kinds.length > 0 && facets.visibility.length > 0 && <FacetDivider />}
 
-      {/* Spaces */}
-      {repositories.spaces.length > 0 && (
-        <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
-            <Globe className="w-4 h-4" />
-            Spaces ({repositories.spaces.length})
-          </h4>
-          <div className="grid gap-2">
-            {repositories.spaces.map((space) => (
-              <RepoCard key={space.id} repo={space} type="space" />
-            ))}
-          </div>
-        </div>
-      )}
+        {facets.visibility.map(([label, count]) => (
+          <FilterChip
+            key={label}
+            active={filters.visibility.has(label)}
+            count={count}
+            onClick={() => onToggle('visibility', label)}
+          >
+            {label}
+          </FilterChip>
+        ))}
+
+        {(facets.writable > 0 || facets.gated > 0) && <FacetDivider />}
+
+        {facets.writable > 0 && (
+          <FilterChip
+            active={filters.writableOnly}
+            count={facets.writable}
+            onClick={() => onFlag('writableOnly', !filters.writableOnly)}
+          >
+            Writable
+          </FilterChip>
+        )}
+
+        {facets.gated > 0 && (
+          <FilterChip
+            active={filters.gatedOnly}
+            count={facets.gated}
+            onClick={() => onFlag('gatedOnly', !filters.gatedOnly)}
+          >
+            Gated
+          </FilterChip>
+        )}
+      </div>
     </div>
   );
 }
 
-interface RepoCardProps {
-  repo: ModelRepository | DatasetRepository | SpaceRepository;
-  type: 'model' | 'dataset' | 'space';
+const KIND_ICON: Record<string, typeof Box> = {
+  model: Box,
+  dataset: Database,
+  space: LayoutTemplate,
+  repository: FileCode2,
+  fork: GitFork,
+  gist: StickyNote,
+};
+
+const KIND_PLURAL: Record<string, string> = {
+  model: 'Models',
+  dataset: 'Datasets',
+  space: 'Spaces',
+  repository: 'Repositories',
+  fork: 'Forks',
+  gist: 'Gists',
+};
+
+function ResourceGroupSection({
+  group,
+  totalCount,
+}: {
+  group: ResourceGroup;
+  totalCount?: number;
+}) {
+  const byKind = useMemo(() => {
+    const map = new Map<string, ResourceRef[]>();
+    for (const resource of group.resources) {
+      const list = map.get(resource.kind);
+      if (list) list.push(resource);
+      else map.set(resource.kind, [resource]);
+    }
+    return [...map.entries()];
+  }, [group.resources]);
+
+  return (
+    <section>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 border-b border-rule pb-3">
+        <h4 className="mono font-medium">@{group.owner}</h4>
+        <span className="data-label">
+          {totalCount !== undefined && totalCount !== group.resources.length
+            ? `${group.resources.length} of ${totalCount}${group.truncated ? '+' : ''} shown`
+            : `${group.resources.length}${group.truncated ? '+' : ''} reachable`}
+        </span>
+        <div className="ml-auto flex flex-wrap gap-1.5">
+          {group.role && <Badge>{group.role}</Badge>}
+          {group.writable && <Badge variant="elevated">Writable</Badge>}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-5">
+        {byKind.map(([kind, resources]) => (
+          <div key={kind}>
+            <p className="data-label">
+              {KIND_PLURAL[kind] ?? `${kind[0].toUpperCase()}${kind.slice(1)}s`} (
+              {resources.length})
+            </p>
+            <ul className="mt-2 space-y-px">
+              {resources.map((resource) => (
+                <li key={resource.id}>
+                  <ResourceRow resource={resource} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
-function RepoCard({ repo, type }: RepoCardProps) {
-  const getTypeIcon = () => {
-    switch (type) {
-      case 'model':
-        return <Box className="w-4 h-4 text-blue-500" />;
-      case 'dataset':
-        return <Database className="w-4 h-4 text-green-500" />;
-      case 'space':
-        return <Globe className="w-4 h-4 text-purple-500" />;
-    }
-  };
-
-  const getHfUrl = () => {
-    switch (type) {
-      case 'model':
-        return `https://huggingface.co/${repo.id}`;
-      case 'dataset':
-        return `https://huggingface.co/datasets/${repo.id}`;
-      case 'space':
-        return `https://huggingface.co/spaces/${repo.id}`;
-    }
-  };
+function ResourceRow({ resource }: { resource: ResourceRef }) {
+  const Icon = KIND_ICON[resource.kind] ?? FileCode2;
 
   return (
     <a
-      href={getHfUrl()}
+      href={resource.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex items-center gap-3 p-3 border rounded-lg hover:bg-accent transition-colors"
+      className="flex items-center gap-3 rounded-md bg-card px-4 py-3 hover:bg-secondary"
     >
-      {getTypeIcon()}
-      <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{repo.id}</p>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          {repo.downloads !== undefined && (
-            <span className="flex items-center gap-1">
-              <Download className="w-3 h-3" />
-              {repo.downloads.toLocaleString()}
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="mono min-w-0 flex-1 truncate">{resource.id}</span>
+
+      <span className="hidden items-center gap-3 text-[0.8125rem] text-muted-foreground sm:flex">
+        {resource.downloads !== undefined && (
+          <span className="flex items-center gap-1">
+            <Download className="h-3 w-3" aria-hidden="true" />
+            {resource.downloads.toLocaleString()}
+            <span className="sr-only">downloads</span>
+          </span>
+        )}
+        {resource.likes !== undefined && (
+          <span className="flex items-center gap-1">
+            {resource.kind === 'repository' || resource.kind === 'fork' ? (
+              <Star className="h-3 w-3" aria-hidden="true" />
+            ) : (
+              <Heart className="h-3 w-3" aria-hidden="true" />
+            )}
+            {resource.likes}
+            <span className="sr-only">
+              {resource.kind === 'repository' || resource.kind === 'fork' ? 'stars' : 'likes'}
             </span>
-          )}
-          {repo.likes !== undefined && (
-            <span className="flex items-center gap-1">
-              <Heart className="w-3 h-3" />
-              {repo.likes}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        {repo.private ? (
-          <Badge variant="outline" className="text-xs">
-            <LockKeyhole className="w-3 h-3 mr-1" />
-            Private
+          </span>
+        )}
+      </span>
+
+      <span className="flex shrink-0 items-center gap-1.5">
+        {resource.writable && <Badge variant="elevated">Writable</Badge>}
+        {resource.private ? (
+          <Badge>
+            {/* Unlisted is not locked: anyone with the link gets in. */}
+            {resource.visibilityLabel === 'Secret' ? (
+              <EyeOff className="h-3 w-3" />
+            ) : (
+              <Lock className="h-3 w-3" />
+            )}
+            {resource.visibilityLabel ?? 'Private'}
           </Badge>
         ) : (
-          <Badge variant="secondary" className="text-xs">
-            <Globe className="w-3 h-3 mr-1" />
-            Public
+          <Badge>
+            <Globe className="h-3 w-3" />
+            {resource.visibilityLabel ?? 'Public'}
           </Badge>
         )}
-        {repo.gated && (
-          <Badge variant="outline" className="text-xs bg-yellow-50 border-yellow-300 text-yellow-700 dark:bg-yellow-950 dark:border-yellow-700 dark:text-yellow-400">
-            <Lock className="w-3 h-3 mr-1" />
-            Gated
-          </Badge>
-        )}
-      </div>
+        {resource.gated && <Badge variant="elevated">Gated</Badge>}
+      </span>
     </a>
   );
 }
