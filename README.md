@@ -6,7 +6,7 @@
 
 <p align="center">
   See what a HuggingFace or GitHub access token can reach.<br />
-  <a href="https://hf-analyzer.devanghacks.in/"><strong>hf-analyzer.devanghacks.in</strong></a>
+  <a href="https://token.devanghacks.in/"><strong>token.devanghacks.in</strong></a>
 </p>
 
 <p align="center">
