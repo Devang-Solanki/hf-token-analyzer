@@ -86,6 +86,22 @@ This tool is designed with privacy as a top priority:
 
 Token requests go directly from your browser to the provider's own API.
 
+## 🎨 Design
+
+Shares the design language of [devanghacks.in](https://devanghacks.in): editorial-brutalist
+terminal. Space Grotesk for display, JetBrains Mono for body text, dark by default via
+`data-theme` on `<html>`, zero border radius, a faint blueprint dot grid, and tracked uppercase
+labels. The fonts are the same self-hosted woff2 files, so the page makes no third-party
+request.
+
+One rule is this tool's own: **hue encodes severity**. The brand accent (lime in dark, teal in
+light) is used for interactive chrome only, and the severity ramp is tuned to stay clear of its
+hue - `elevated` is orange rather than amber, because amber sits at the same hue as the lime
+accent and a warning must never be mistakable for a button.
+
+The light theme links in `#1a5fc4` rather than the site's `#2F89FC`, which measures 3.15:1 on
+`#F5F5F5` and fails the 4.5:1 body-text floor.
+
 ## 🏗️ Tech Stack
 
 - **React 18** - UI framework

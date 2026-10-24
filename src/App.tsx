@@ -112,12 +112,14 @@ function App() {
   const [listError, setListError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [isDarkMode, setIsDarkMode] = useState(
-    () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+    () =>
+      typeof document === 'undefined' ||
+      document.documentElement.getAttribute('data-theme') !== 'light'
   );
   const tokenInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDarkMode);
+    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
     try {
       localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     } catch {
@@ -283,9 +285,25 @@ function App() {
 
       <header className="border-b border-rule">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="" width="28" height="26" className="h-7 w-auto" />
-            <span className="text-[0.9375rem] font-medium tracking-tight">Token Analyzer</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="flex items-center gap-2.5">
+              <img
+                src="/logo.png"
+                alt=""
+                width="30"
+                height="28"
+                className="h-[1.75rem] w-auto shrink-0"
+              />
+              <span className="text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-accent-text">
+                [ Token Analyzer ]
+              </span>
+            </span>
+            <a
+              href="https://devanghacks.in"
+              className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-accent-text"
+            >
+              devanghacks.in <span aria-hidden="true">&#8599;</span>
+            </a>
           </div>
           <Button
             variant="ghost"
@@ -302,10 +320,10 @@ function App() {
         <section className={report ? 'pt-8' : 'pt-10 sm:pt-14'}>
           {!report && (
             <>
-              <h1 className="max-w-[20ch] text-[clamp(1.875rem,5vw,2.75rem)] font-bold leading-[1.08] tracking-[-0.02em]">
+              <h1 className="max-w-[20ch] text-[clamp(2rem,5.4vw,3.4rem)] font-medium leading-[1.06] tracking-[-0.02em]">
                 What can this token do?
               </h1>
-              <p className="prose-width mt-4 text-[0.9375rem] leading-relaxed text-muted-foreground">
+              <p className="prose-width mt-4 text-[0.875rem] leading-relaxed text-muted-foreground">
                 Paste a {PROVIDERS.map((p) => p.name).join(' or ')} access token to see its
                 permissions, the accounts it reaches and the repositories it can change. The token
                 is read in your browser and sent only to the service it belongs to.
@@ -376,7 +394,7 @@ function App() {
                         href={p.tokenUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="underline decoration-rule underline-offset-2 hover:decoration-current"
+                        className="link"
                       >
                         {p.name}
                       </a>
@@ -390,7 +408,7 @@ function App() {
 
           {!report && !analysisError && (
             <div className="mt-14 section-rule pt-8">
-              <h2 className="max-w-[34ch] text-[1.0625rem] font-semibold tracking-tight">
+              <h2 className="display max-w-[34ch] text-[1.0625rem] font-medium tracking-[-0.01em]">
                 Every token lands in one of four places.
               </h2>
               <ul className="mt-5 max-w-2xl">
@@ -418,17 +436,17 @@ function App() {
           {report && (
             <>
               <section
-                className={`${SEVERITY_CLASS[report.verdict.level]} sev-rail mt-12 bg-card px-5 py-6 shadow-lifted sm:px-7 sm:py-8`}
+                className={`${SEVERITY_CLASS[report.verdict.level]} sev-rail mt-12 bg-card px-5 py-6 sm:px-7 sm:py-8`}
                 aria-labelledby="verdict"
               >
                 <p className="data-label">{report.providerName}</p>
                 <h2
                   id="verdict"
-                  className="sev-text mt-1 text-[clamp(1.5rem,3.6vw,2.125rem)] font-bold leading-[1.1] tracking-[-0.02em]"
+                  className="sev-text mt-1 text-[clamp(1.5rem,3.6vw,2.25rem)] font-medium leading-[1.1] tracking-[-0.02em]"
                 >
                   {report.verdict.headline}
                 </h2>
-                <p className="prose-width mt-3 text-[0.9375rem] leading-relaxed">
+                <p className="prose-width mt-3 text-[0.875rem] leading-relaxed">
                   <Prose text={report.verdict.summary} />
                 </p>
 
@@ -461,7 +479,7 @@ function App() {
                       href={report.identity.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-medium underline decoration-rule underline-offset-2 hover:decoration-current"
+                      className="link font-medium"
                     >
                       {report.identity.fullname || report.identity.handle}
                     </a>
@@ -532,7 +550,7 @@ function App() {
                     <>
                       <SectionHead
                         title="Permissions"
-                        note="Highlighted rows are the ones that let this token change things"
+                        note="Write access marked"
                       />
                       <ul className="mt-5 grid grid-cols-1 gap-px sm:grid-cols-2">
                         {report.permissions.map((permission, index) => (
@@ -549,7 +567,7 @@ function App() {
                     </>
                   ) : (
                     <>
-                      <SectionHead title="Permissions" note="Not reported by the provider" />
+                      <SectionHead title="Permissions" note="Not reported" />
                       {report.notes.map((note) => (
                         <p
                           key={note}
@@ -566,7 +584,7 @@ function App() {
                     <div className="mt-10 section-rule pt-6">
                       <SectionHead
                         title="Scopes"
-                        note="As the provider reports them, verbatim"
+                        note="Verbatim from provider"
                       />
                       <div className="mt-5 flex flex-wrap gap-1.5">
                         {report.rawScopes.map((scope) => (
@@ -580,7 +598,7 @@ function App() {
 
                   {report.scopes.length > 0 && (
                     <div className="mt-10 section-rule pt-6">
-                      <SectionHead title="Scoped resources" note="The exact targets this token names" />
+                      <SectionHead title="Scoped resources" note="Exact targets named" />
                       <ul className="mt-5 space-y-px">
                         {report.scopes.map((scope) => (
                           <li key={`${scope.kind}-${scope.label}`} className="bg-card px-4 py-3">
@@ -622,7 +640,7 @@ function App() {
 
                   <SectionHead
                     title="Repositories"
-                    note="What this token can open"
+                    note="What this token opens"
                   />
 
                   {listError && (
@@ -686,7 +704,7 @@ function App() {
                           <button
                             type="button"
                             onClick={() => setFilters(EMPTY_FILTERS)}
-                            className="underline decoration-rule underline-offset-2 hover:decoration-current"
+                            className="link"
                           >
                             Show all {totals?.count ?? 0}
                           </button>
@@ -723,7 +741,7 @@ function App() {
               href="https://github.com/Devang-Solanki/hf-token-analyzer"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline decoration-rule underline-offset-2 hover:decoration-current"
+              className="link"
             >
               Source on GitHub
             </a>
@@ -740,7 +758,7 @@ function Prose({ text }: { text: string }) {
     <>
       {text.split(/(`[^`]+`)/).map((part, index) =>
         part.startsWith('`') && part.endsWith('`') ? (
-          <code key={index} className="mono rounded-sm bg-secondary px-1 py-0.5">
+          <code key={index} className="mono bg-secondary px-1 py-0.5 text-[var(--code-ink)]">
             {part.slice(1, -1)}
           </code>
         ) : (
@@ -791,7 +809,7 @@ function FindingRow({ finding }: { finding: Finding }) {
 function SectionHead({ title, note }: { title: string; note?: string }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <h3 className="text-[1.0625rem] font-semibold tracking-tight">{title}</h3>
+      <h3 className="display text-[1.0625rem] font-medium tracking-[-0.01em]">{title}</h3>
       {note && <p className="data-label">{note}</p>}
     </div>
   );
@@ -990,7 +1008,7 @@ function AccessFilters({
           <button
             type="button"
             onClick={onClear}
-            className="text-[0.8125rem] text-muted-foreground underline decoration-rule underline-offset-2 hover:text-foreground hover:decoration-current"
+            className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-accent-text"
           >
             Clear filters
           </button>

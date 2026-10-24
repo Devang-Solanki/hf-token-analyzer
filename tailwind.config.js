@@ -1,10 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ["class"],
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  darkMode: ["selector", '[data-theme="dark"]'],
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -13,10 +10,13 @@ export default {
         ring: "var(--ring)",
         background: "var(--background)",
         foreground: "var(--foreground)",
-        rule: "var(--rule)",
-        primary: {
-          DEFAULT: "var(--primary)",
-          foreground: "var(--primary-foreground)",
+        rule: "var(--line)",
+        "rule-strong": "var(--line-strong)",
+        accent: {
+          DEFAULT: "var(--accent)",
+          ink: "var(--accent-ink)",
+          text: "var(--accent-text)",
+          foreground: "var(--accent-foreground)",
         },
         secondary: {
           DEFAULT: "var(--secondary)",
@@ -27,16 +27,8 @@ export default {
           foreground: "var(--destructive-foreground)",
         },
         muted: {
-          DEFAULT: "var(--muted)",
+          DEFAULT: "var(--bg-press)",
           foreground: "var(--muted-foreground)",
-        },
-        accent: {
-          DEFAULT: "var(--accent)",
-          foreground: "var(--accent-foreground)",
-        },
-        popover: {
-          DEFAULT: "var(--popover)",
-          foreground: "var(--popover-foreground)",
         },
         card: {
           DEFAULT: "var(--card)",
@@ -49,19 +41,14 @@ export default {
           total: "var(--sev-total)",
         },
       },
-      borderRadius: {
-        sm: "calc(var(--radius) - 1px)",
-        md: "var(--radius)",
-        lg: "calc(var(--radius) + 2px)",
-      },
+      /* Brutalist: no rounding anywhere. */
+      borderRadius: { none: "0", sm: "0", DEFAULT: "0", md: "0", lg: "0", xl: "0", full: "0" },
       fontFamily: {
-        sans: ["var(--font-sans)"],
+        sans: ["var(--font-display)"],
+        display: ["var(--font-display)"],
         mono: ["var(--font-mono)"],
       },
-      boxShadow: {
-        lifted: "var(--shadow-lifted)",
-        none: "none",
-      },
+      boxShadow: { none: "none" },
     },
   },
   plugins: [],

@@ -9,12 +9,12 @@ import { cn } from "@/lib/utils"
  * text from a single --sev value so every level passes contrast in both themes.
  */
 const badgeVariants = cva(
-  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md text-xs font-medium leading-normal",
+  "inline-flex items-center gap-1.5 whitespace-nowrap text-[0.6875rem] font-medium uppercase tracking-[0.08em] leading-[1.6]",
   {
     variants: {
       variant: {
-        neutral: "border border-rule bg-transparent px-2 py-0.5 text-muted-foreground",
-        solid: "bg-foreground px-2 py-0.5 text-background",
+        neutral: "border border-rule-strong bg-transparent px-2 py-0.5 text-muted-foreground",
+        solid: "accent-fill px-2 py-0.5",
         contained: "sev sev-contained sev-chip",
         elevated: "sev sev-elevated sev-chip",
         breach: "sev sev-breach sev-chip",

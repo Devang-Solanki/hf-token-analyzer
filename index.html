@@ -16,8 +16,8 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" href="/logo.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#f1f3f2" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#12161a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0c0f" media="(prefers-color-scheme: dark)" />
 
     <!-- Social cards. og:title is the page's own question, which is what the
          share image shows, so the card reads as one thought. -->
@@ -52,11 +52,19 @@
       content="Token Analyzer: the four verdicts a token can land in, from read-only through admin."
     />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="preload"
+      href="/fonts/jetbrains-mono-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/space-grotesk-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
 
     <script type="application/ld+json">
@@ -94,15 +102,19 @@
     -->
     <script>
       (function () {
+        var t;
         try {
-          var stored = localStorage.getItem('theme');
-          var dark = stored
-            ? stored === 'dark'
-            : window.matchMedia('(prefers-color-scheme: dark)').matches;
-          if (dark) document.documentElement.classList.add('dark');
+          t = localStorage.getItem('theme');
         } catch (e) {
-          /* private mode or blocked storage: fall through to light */
+          /* private mode or blocked storage */
         }
+        if (t !== 'light' && t !== 'dark') {
+          t =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+              ? 'light'
+              : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', t);
       })();
     </script>
 

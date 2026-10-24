@@ -154,10 +154,10 @@ const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
         onClick={() => onValueChange(value)}
         onKeyDown={handleKeyDown}
         className={cn(
-          "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+          "px-3 py-2 text-[0.75rem] font-semibold uppercase tracking-[0.1em] transition-colors",
           isSelected
-            ? "bg-foreground text-background"
-            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+            ? "accent-fill"
+            : "text-muted-foreground hover:text-accent-text",
           className
         )}
         {...props}

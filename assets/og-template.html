@@ -1,54 +1,46 @@
-<!--
-  Source for public/og.png, the 1200x630 image social platforms show when the
-  site is shared. It is a page rather than an image file so it stays in the
-  project's own type and colour tokens; keep the values below in sync with
-  src/index.css if those change.
-
-  To regenerate, from the repository root:
-
-    python3 -m http.server 8080 &
-    chrome --headless=new --disable-gpu --hide-scrollbars \
-      --force-color-profile=srgb --window-size=1200,630 \
-      --screenshot=public/og.png --virtual-time-budget=8000 \
-      http://localhost:8080/assets/og-template.html
-
-  Any Chrome or Chromium binary works. The window size is the output size, so
-  do not change it without also updating og:image:width / og:image:height in
-  index.html. The footer carries the domain, so it needs a re-render whenever
-  the canonical URL changes.
--->
 <!doctype html>
 <html><head><meta charset="utf-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  @font-face{font-family:'Space Grotesk';font-weight:300 700;font-display:block;
+    src:url('../public/fonts/space-grotesk-latin.woff2') format('woff2')}
+  @font-face{font-family:'JetBrains Mono';font-weight:100 800;font-display:block;
+    src:url('../public/fonts/jetbrains-mono-latin.woff2') format('woff2')}
+</style>
 <style>
   :root{
-    --paper:#12161a; --card:#181d22; --ink:#eceff0; --soft:#97a3a8; --rule:#2a3238;
-    --contained:#5fbf9e; --elevated:#e0a93c; --breach:#f4826f; --total:#c0a2f5;
+    --paper:#0b0c0f; --card:#111318; --ink:#eaebee; --soft:#8f96a3; --rule:#22252d;
+    --accent:#d6f740;
+    --contained:#5fbf9e; --elevated:#f09a4a; --breach:#f4826f; --total:#c0a2f5;
+    --dot:rgba(143,150,163,0.07);
   }
   *{margin:0;padding:0;box-sizing:border-box}
   body{width:1200px;height:630px;background:var(--paper);color:var(--ink);
-       font-family:'Space Grotesk',sans-serif;display:flex;flex-direction:column;
-       justify-content:space-between;padding:64px 72px;overflow:hidden}
-  .top{display:flex;align-items:center;gap:12px}
-  .top img{width:34px;height:auto}
-  .top span{font-size:20px;font-weight:500;letter-spacing:-.01em}
-  h1{font-size:72px;font-weight:700;line-height:1.02;letter-spacing:-.03em;max-width:11ch}
+       font-family:'JetBrains Mono',monospace;display:flex;flex-direction:column;
+       justify-content:space-between;padding:64px 72px;overflow:hidden;
+       background-image:radial-gradient(circle,var(--dot) 1px,transparent 1px);
+       background-size:32px 32px}
+  .top{display:flex;align-items:center;gap:13px}
+  .top img{width:36px;height:auto}
+  .top span{font-size:19px;font-weight:600;letter-spacing:.12em;
+            text-transform:uppercase;color:var(--accent)}
+  h1{font-family:'Space Grotesk',sans-serif;font-size:72px;font-weight:500;line-height:1.02;letter-spacing:-.03em;max-width:11ch}
   p{margin-top:22px;font-size:24px;line-height:1.45;color:var(--soft);max-width:26ch}
   .ramp{display:flex;flex-direction:column;gap:2px;margin-top:40px;width:452px;flex:none}
   .row{display:flex;align-items:baseline;gap:14px;background:var(--card);
-       padding:11px 18px;border-left:4px solid var(--sev)}
-  .name{font-size:18px;font-weight:500;color:var(--sev);min-width:122px}
-  .what{font-size:18px;color:var(--soft);white-space:nowrap}
+       padding:11px 18px;border-left:3px solid var(--sev)}
+  .name{font-size:15px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--sev);min-width:140px}
+  .what{font-size:16px;color:var(--soft);white-space:nowrap}
   .foot{display:flex;align-items:center;justify-content:space-between;
         border-top:1px solid var(--rule);padding-top:22px}
   .foot .url{font-family:'IBM Plex Mono',monospace;font-size:19px;color:var(--soft)}
-  .foot .tag{font-size:19px;color:var(--soft)}
+  .foot .tag{font-size:15px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
   .body{display:flex;justify-content:space-between;align-items:flex-start;gap:56px}
 </style></head>
 <body>
-  <div class="top"><img src="../public/logo.png" alt=""><span>Token Analyzer</span></div>
+  <div class="top">
+    <img src="../public/logo.png" alt="">
+    <span>[ Token Analyzer ]</span>
+  </div>
 
   <div class="body">
     <div>
