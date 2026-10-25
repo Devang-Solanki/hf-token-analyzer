@@ -109,6 +109,10 @@ export interface TokenReport {
 
   identity?: Identity;
   accounts: AccountRef[];
+  /** What this provider calls a container of resources. Default "Organizations". */
+  accountsLabel?: string;
+  /** What this provider calls the resources themselves. Default "Repositories". */
+  resourcesLabel?: string;
   permissions: PermissionEntry[];
   scopes: ScopeEntry[];
   /** The provider's own scope strings, shown verbatim so they can be compared. */

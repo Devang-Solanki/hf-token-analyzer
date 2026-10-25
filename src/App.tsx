@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -20,11 +20,13 @@ import {
   AlertTriangle,
   Box,
   Check,
+  ChevronRight,
   Database,
   Download,
   Eye,
   EyeOff,
   FileCode2,
+  FolderGit2,
   GitFork,
   Globe,
   Heart,
@@ -91,6 +93,14 @@ function filtersActive(filters: Filters): boolean {
   );
 }
 
+/** "A", "A or B", "A, B or C". */
+function joinNames(names: string[], conjunction: 'or' | 'and'): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} ${conjunction} ${names[names.length - 1]}`;
+}
+
+const PROVIDER_NAMES = PROVIDERS.map((provider) => provider.name);
+
 const VERDICT_KEY: { level: Level; name: string; meaning: string }[] = [
   { level: 'contained', name: 'Read-only', meaning: 'downloads what you can already see' },
   { level: 'contained', name: 'Scoped', meaning: 'reaches only the resources it names' },
@@ -138,9 +148,10 @@ function App() {
       setReport(null);
       setProvider(null);
       setAnalysisError(
-        `That is not a token format this tool recognises. It reads ${PROVIDERS.map(
-          (p) => p.name
-        ).join(' and ')} tokens, and sends nothing anywhere until it recognises one.`
+        `That is not a token format this tool recognises. It reads ${joinNames(
+          PROVIDER_NAMES,
+          'and'
+        )} tokens, and sends nothing anywhere until it recognises one.`
       );
       return;
     }
@@ -315,9 +326,9 @@ function App() {
                 What can this token do?
               </h1>
               <p className="prose-width mt-4 text-[0.875rem] leading-relaxed text-muted-foreground">
-                Paste a {PROVIDERS.map((p) => p.name).join(' or ')} access token to see its
-                permissions, the accounts it reaches and the repositories it can change. The token
-                is read in your browser and sent only to the service it belongs to.
+                Paste a {joinNames(PROVIDER_NAMES, 'or')} access token to see its permissions,
+                the accounts it reaches and the repositories it can change. The token is read in
+                your browser and sent only to the service it belongs to.
               </p>
             </>
           )}
@@ -334,7 +345,7 @@ function App() {
                   type={showToken ? 'text' : 'password'}
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="hf_... or ghp_..."
+                  placeholder="hf_…  ghp_…  glpat-…"
                   value={token}
                   onChange={(event) => setToken(event.target.value)}
                   onKeyDown={handleKeyDown}
@@ -380,7 +391,7 @@ function App() {
                   Reads{' '}
                   {PROVIDERS.map((p, index) => (
                     <span key={p.id}>
-                      {index > 0 && ' and '}
+                      {index > 0 && (index === PROVIDERS.length - 1 ? ' and ' : ', ')}
                       <a
                         href={p.tokenUrl}
                         target="_blank"
@@ -446,7 +457,7 @@ function App() {
                   <Datum label="Expires">
                     <ExpiryValue expiry={report.expiry} />
                   </Datum>
-                  <Datum label="Organizations">
+                  <Datum label={report.accountsLabel ?? 'Organizations'}>
                     <span className="mono">{report.accounts.length}</span>
                   </Datum>
                   <Datum label="Resources reached">
@@ -579,7 +590,7 @@ function App() {
                       />
                       <div className="mt-5 flex flex-wrap gap-1.5">
                         {report.rawScopes.map((scope) => (
-                          <Badge key={scope} className="mono">
+                          <Badge key={scope} className="mono normal-case tracking-normal">
                             {scope}
                           </Badge>
                         ))}
@@ -602,7 +613,7 @@ function App() {
                             </div>
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {scope.permissions.map((perm) => (
-                                <Badge key={perm} className="mono">
+                                <Badge key={perm} className="mono normal-case tracking-normal">
                                   {perm}
                                 </Badge>
                               ))}
@@ -618,7 +629,7 @@ function App() {
                   {report.accounts.length > 0 && (
                     <div className="mb-10">
                       <SectionHead
-                        title="Organizations"
+                        title={report.accountsLabel ?? 'Organizations'}
                         note={`${report.accounts.length} reachable`}
                       />
                       <ul className="mt-5 space-y-px">
@@ -630,7 +641,7 @@ function App() {
                   )}
 
                   <SectionHead
-                    title="Repositories"
+                    title={report.resourcesLabel ?? 'Repositories'}
                     note="What this token opens"
                   />
 
@@ -643,8 +654,8 @@ function App() {
                   {!groups ? (
                     <div className="mt-5 bg-card px-5 py-8">
                       <p className="prose-width text-sm leading-relaxed text-muted-foreground">
-                        Listing repositories takes a few extra requests to {report.providerName}, so
-                        it runs only when you ask for it.
+                        Listing takes a few extra requests to {report.providerName}, so it runs
+                        only when you ask for it.
                       </p>
                       <Button onClick={handleList} disabled={isListing} className="mt-4">
                         {isListing ? (
@@ -686,6 +697,7 @@ function App() {
                           key={group.owner}
                           group={{ ...group, resources }}
                           totalCount={group.resources.length}
+                          defaultOpen={shown <= COLLAPSE_ABOVE || filtersActive(filters)}
                         />
                       ))}
 
@@ -1045,31 +1057,34 @@ function AccessFilters({
       </div>
 
       <div className="flex flex-wrap items-stretch gap-1.5">
-        {facets.kinds.map(([kind, count]) => (
-          <FilterChip
-            key={kind}
-            active={filters.kinds.has(kind)}
-            count={count}
-            onClick={() => onToggle('kinds', kind)}
-          >
-            {KIND_PLURAL[kind] ?? kind}
-          </FilterChip>
-        ))}
+        {facets.kinds.length > 1 &&
+          facets.kinds.map(([kind, count]) => (
+            <FilterChip
+              key={kind}
+              active={filters.kinds.has(kind)}
+              count={count}
+              onClick={() => onToggle('kinds', kind)}
+            >
+              {kindPlural(kind)}
+            </FilterChip>
+          ))}
 
-        {facets.kinds.length > 0 && facets.visibility.length > 0 && <FacetDivider />}
+        {facets.kinds.length > 1 && facets.visibility.length > 1 && <FacetDivider />}
 
-        {facets.visibility.map(([label, count]) => (
-          <FilterChip
-            key={label}
-            active={filters.visibility.has(label)}
-            count={count}
-            onClick={() => onToggle('visibility', label)}
-          >
-            {label}
-          </FilterChip>
-        ))}
+        {facets.visibility.length > 1 &&
+          facets.visibility.map(([label, count]) => (
+            <FilterChip
+              key={label}
+              active={filters.visibility.has(label)}
+              count={count}
+              onClick={() => onToggle('visibility', label)}
+            >
+              {label}
+            </FilterChip>
+          ))}
 
-        {(facets.writable > 0 || facets.gated > 0) && <FacetDivider />}
+        {(facets.kinds.length > 1 || facets.visibility.length > 1) &&
+          (facets.writable > 0 || facets.gated > 0) && <FacetDivider />}
 
         {facets.writable > 0 && (
           <FilterChip
@@ -1100,6 +1115,7 @@ const KIND_ICON: Record<string, typeof Box> = {
   dataset: Database,
   space: LayoutTemplate,
   repository: FileCode2,
+  project: FolderGit2,
   fork: GitFork,
   gist: StickyNote,
 };
@@ -1109,17 +1125,33 @@ const KIND_PLURAL: Record<string, string> = {
   dataset: 'Datasets',
   space: 'Spaces',
   repository: 'Repositories',
+  project: 'Projects',
   fork: 'Forks',
   gist: 'Gists',
 };
 
+function kindPlural(kind: string): string {
+  return KIND_PLURAL[kind] ?? `${kind[0].toUpperCase()}${kind.slice(1)}s`;
+}
+
+/** Above this many resources in view, groups start collapsed. */
+const COLLAPSE_ABOVE = 40;
+
 function ResourceGroupSection({
   group,
   totalCount,
+  defaultOpen = true,
 }: {
   group: ResourceGroup;
   totalCount?: number;
+  defaultOpen?: boolean;
 }) {
+  const panelId = useId();
+  const [open, setOpen] = useState(defaultOpen);
+
+  // Applying a filter means you are looking for something, so groups open.
+  useEffect(() => setOpen(defaultOpen), [defaultOpen]);
+
   const byKind = useMemo(() => {
     const map = new Map<string, ResourceRef[]>();
     for (const resource of group.resources) {
@@ -1132,25 +1164,38 @@ function ResourceGroupSection({
 
   return (
     <section>
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 border-b border-rule pb-3">
-        <h4 className="mono font-medium">@{group.owner}</h4>
-        <span className="data-label">
-          {totalCount !== undefined && totalCount !== group.resources.length
-            ? `${group.resources.length} of ${totalCount}${group.truncated ? '+' : ''} shown`
-            : `${group.resources.length}${group.truncated ? '+' : ''} reachable`}
-        </span>
-        <div className="ml-auto flex flex-wrap gap-1.5">
-          {group.role && <Badge>{group.role}</Badge>}
-          {group.writable && <Badge variant="elevated">Writable</Badge>}
-        </div>
-      </div>
+      <h4>
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-2 border-b border-rule pb-3 text-left hover:border-accent-text"
+        >
+          <ChevronRight
+            className={`h-4 w-4 shrink-0 self-center text-muted-foreground transition-transform ${
+              open ? 'rotate-90' : ''
+            }`}
+            aria-hidden="true"
+          />
+          <span className="mono font-medium">@{group.owner}</span>
+          <span className="data-label">
+            {totalCount !== undefined && totalCount !== group.resources.length
+              ? `${group.resources.length} of ${totalCount}${group.truncated ? '+' : ''} shown`
+              : `${group.resources.length}${group.truncated ? '+' : ''} reachable`}
+          </span>
+          <span className="ml-auto flex flex-wrap gap-1.5">
+            {group.role && <Badge>{group.role}</Badge>}
+            {group.writable && <Badge variant="elevated">Writable</Badge>}
+          </span>
+        </button>
+      </h4>
 
-      <div className="mt-4 space-y-5">
+      <div id={panelId} hidden={!open} className="mt-4 space-y-5">
         {byKind.map(([kind, resources]) => (
           <div key={kind}>
             <p className="data-label">
-              {KIND_PLURAL[kind] ?? `${kind[0].toUpperCase()}${kind.slice(1)}s`} (
-              {resources.length})
+              {kindPlural(kind)} ({resources.length})
             </p>
             <ul className="mt-2 space-y-px">
               {resources.map((resource) => (

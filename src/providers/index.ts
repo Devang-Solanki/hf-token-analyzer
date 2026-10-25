@@ -1,8 +1,9 @@
 import { githubProvider } from './github';
+import { gitlabProvider } from './gitlab';
 import { huggingfaceProvider } from './huggingface';
 import type { Provider } from './types';
 
-export const PROVIDERS: Provider[] = [huggingfaceProvider, githubProvider];
+export const PROVIDERS: Provider[] = [huggingfaceProvider, githubProvider, gitlabProvider];
 
 /**
  * Identify the provider from the token's format alone. Nothing is sent

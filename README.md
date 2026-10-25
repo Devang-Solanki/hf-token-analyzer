@@ -156,7 +156,8 @@ for an unsupported service is never transmitted by accident.
 | Provider | Token formats | What is reported |
 |---|---|---|
 | **HuggingFace** | `hf_` | role, fine-grained scopes, orgs, repositories |
-| **GitHub** | `ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, legacy 40-hex | classic scopes, orgs, repositories |
+| **GitHub** | `ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, legacy 40-hex | classic scopes, orgs, repositories, gists |
+| **GitLab** | `glpat-` (plus 12 other prefixes, recognised but not introspectable) | scopes, granular scopes, groups, projects |
 
 ### Why only these two
 
@@ -177,6 +178,14 @@ through someone else's machine, which defeats the point of the tool.
 - **Listings stop after 10 pages**, and a cursor header is not always readable cross-origin.
   When a listing ends early the counts carry a `+` and the UI says so, because under-reporting
   what a token reaches is worse than over-warning about it.
+- **GitLab is gitlab.com only.** A token for a self-managed instance will be rejected, and the
+  error says so. Supporting self-managed means asking for a host, which means sending a
+  credential to a server the user names - worth doing, but not silently.
+- **Most GitLab token types cannot be introspected.** Deploy, runner, job, trigger, feed, agent
+  and SCIM tokens authenticate against Git, the registry or a runner rather than the REST API,
+  and GitLab describes none of them. They are recognised by prefix and reported as such rather
+  than called unrecognised, so nobody pastes a live credential somewhere less careful looking
+  for an answer.
 
 ## 🔧 API Endpoints Used
 
@@ -190,8 +199,18 @@ GitHub:
 - `GET /user/repos` - repository listings, followed via the `Link` header
 - `GET /gists` - gists, including secret ones, when the token carries `gist`
 
+GitLab:
+- `GET /api/v4/personal_access_tokens/self` - the token describes itself: scopes, granular
+  scopes, expiry, revocation state and the addresses it was last used from
+- `GET /api/v4/user` - identity. Project and group access tokens share the `glpat-` prefix with
+  personal ones, so the kind is read from the bot account they authenticate as
+- `GET /api/v4/groups` - group membership
+- `GET /api/v4/projects?membership=true` - project listings, followed via the `Link` header
+
 Secret gists are reported as **Secret**, not Private: anyone holding the link can read one, so
-calling it private would overstate how protected it is.
+calling it private would overstate how protected it is. GitLab projects are likewise reported as
+**Private**, **Internal** or **Public** rather than collapsed into two: internal means anyone
+with an account on the instance can read it, which is neither of the other two.
 
 ## 📝 Token Permissions Analyzed
 
