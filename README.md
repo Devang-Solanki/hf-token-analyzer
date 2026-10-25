@@ -258,15 +258,20 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## 🙏 Credits
 
-- [HuggingFace](https://huggingface.co) for their amazing platform and API
-- [shadcn/ui](https://ui.shadcn.com) for the beautiful UI components
-- [Lucide](https://lucide.dev) for the icons
+- The logo takes after [HuggingFace](https://huggingface.co)'s own mark, with a magnifying glass
+  added.
+- The UI primitives follow the [shadcn/ui](https://ui.shadcn.com) idiom, hand-rolled here rather
+  than installed.
+- Icons from [Lucide](https://lucide.dev).
 
 ## ⚠️ Disclaimer
 
-This tool is not officially affiliated with HuggingFace. Use at your own discretion. Always keep your API tokens secure and never share them publicly.
+This tool is not affiliated with HuggingFace, GitHub or GitLab. Use at your own discretion.
+Treat any token you paste here as one you are willing to rotate: the page never sends it
+anywhere but the service that issued it, but a credential you have been handling is a
+credential worth replacing.
 
 ---
 
