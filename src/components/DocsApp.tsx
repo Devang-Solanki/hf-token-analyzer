@@ -176,7 +176,7 @@ function TopicPane({ id }: { id: string }) {
             Anything a provider cannot determine must be represented as unknown rather than
             defaulted. The interface and three worked examples are in{' '}
             <a
-              href="https://github.com/Devang-Solanki/hf-token-analyzer/tree/main/src/providers"
+              href="https://github.com/Devang-Solanki/token-analyzer/tree/main/src/providers"
               target="_blank"
               rel="noopener noreferrer"
               className="link"

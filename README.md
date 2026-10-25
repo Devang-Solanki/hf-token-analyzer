@@ -39,8 +39,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/Devang-Solanki/hf-token-analyzer.git
-cd hf-token-analyzer
+git clone https://github.com/Devang-Solanki/token-analyzer.git
+cd token-analyzer
 
 # Install dependencies
 npm install

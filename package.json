@@ -1,5 +1,5 @@
 {
-  "name": "hf-token-analyzer",
+  "name": "token-analyzer",
   "private": true,
   "version": "0.0.0",
   "type": "module",

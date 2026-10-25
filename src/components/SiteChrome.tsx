@@ -84,7 +84,7 @@ export function SiteFooter() {
           </a>{' '}
           &middot; Built for the security community.{' '}
           <a
-            href="https://github.com/Devang-Solanki/hf-token-analyzer"
+            href="https://github.com/Devang-Solanki/token-analyzer"
             target="_blank"
             rel="noopener noreferrer"
             className="link"
