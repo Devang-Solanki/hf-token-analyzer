@@ -171,6 +171,163 @@
 }
 
 @layer components {
+
+  /*
+   * Day/night switch, ported from devanghacks.in. A 320x130 scene scaled
+   * into a 74x30 pill: sun becomes moon, clouds drop away, the balloon
+   * sinks and a spaceship flies in. The reduced-motion block below stops
+   * all of it for anyone who asks.
+   */
+  .theme-switch-wrap {
+    position: relative;
+    flex-shrink: 0;
+    width: 74px;
+    height: 30px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .switch {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 320px;
+    height: 130px;
+    overflow: hidden;
+    transform: translate(-50%, -50%) scale(0.238);
+    transform-origin: center;
+  }
+
+  .switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .switch .slider {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    overflow: hidden;
+    background-color: #2196f3;
+    transition: 0.6s ease-in-out;
+  }
+
+  .switch .slider:before {
+    position: absolute;
+    content: '';
+    height: 110px;
+    width: 110px;
+    border-radius: 50%;
+    left: 10px;
+    bottom: 10px;
+    background-color: #f9dc5c;
+    transition: 0.6s;
+    z-index: 999;
+    box-shadow: 0 0 50px 50px rgb(255 255 255 / 0.3);
+  }
+
+  .switch input:checked + .slider {
+    background-color: #1c1c24;
+  }
+  .switch input:checked + .slider:before {
+    /* Optical correction for the scaled moon: slightly up/left reads as centred. */
+    transform: translate(187px, -2px);
+    background-color: #e0e0d1;
+  }
+
+  .switch .clouds {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 320px;
+    height: 130px;
+    overflow: hidden;
+  }
+  .switch .cloud1 {
+    position: relative;
+    z-index: 200;
+    transition: 0.8s;
+    opacity: 0.95;
+  }
+  .switch .cloud2 {
+    z-index: 100;
+    transition: 1.1s;
+    transform: scale(1.15) translateY(-20px) translateX(-20px);
+    opacity: 0.5;
+  }
+  .switch input:checked + .slider > .clouds {
+    transform: translateY(99px);
+  }
+
+  .switch .balloon {
+    z-index: 150;
+    position: absolute;
+    top: 0;
+    right: 100px;
+    height: 40px;
+    transform: translateY(20px);
+    transition: 3s ease-in-out;
+  }
+  .switch input:checked + .slider > .balloon {
+    transform: translateY(150px);
+  }
+
+  .switch .night {
+    background-color: #1c1c24;
+    position: absolute;
+    display: none;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+  }
+  .switch input:checked + .slider > .night {
+    z-index: 151;
+    display: block;
+  }
+
+  .switch p {
+    z-index: 500;
+    position: absolute;
+    margin: 0;
+    opacity: 0;
+    transition: 0.6s;
+    color: #fff;
+    text-shadow:
+      0 0 7px #fff, 0 0 10px #fff, 0 0 21px #fff, 0 0 42px #0fa, 0 0 82px #0fa,
+      0 0 92px #0fa, 0 0 102px #0fa, 0 0 151px #0fa;
+    transform: translateY(-80px);
+  }
+  .switch p:nth-of-type(1) { top: 10px; left: 60px; font-size: 10px; }
+  .switch p:nth-of-type(2) { top: 30px; left: 170px; font-size: 8px; }
+  .switch p:nth-of-type(3) { top: 60px; left: 10px; font-size: 12px; }
+  .switch p:nth-of-type(4) { top: 90px; left: 70px; font-size: 5px; }
+  .switch p:nth-of-type(5) { top: 55px; left: 140px; font-size: 9px; }
+  .switch input:checked + .slider .star {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  .switch .spaceship {
+    z-index: 800;
+    opacity: 0;
+    position: absolute;
+    top: 0;
+    right: 100px;
+    height: 40px;
+    transform: translateY(150px) translateX(-150px);
+    transition: transform 2s ease-in-out;
+    transition-delay: 1s;
+  }
+  .switch input:checked + .slider .spaceship {
+    opacity: 1;
+    transform: translateY(-100px) translateX(40px);
+  }
+
   .accent-fill {
     background: var(--accent);
     color: var(--accent-ink);

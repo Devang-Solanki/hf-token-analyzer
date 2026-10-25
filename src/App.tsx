@@ -33,12 +33,10 @@ import {
   Loader2,
   Lock,
   Minus,
-  Moon,
   ShieldAlert,
   ShieldCheck,
   Star,
   StickyNote,
-  Sun,
 } from 'lucide-react';
 
 const SEVERITY_CLASS: Record<Level, string> = {
@@ -305,14 +303,7 @@ function App() {
               devanghacks.in <span aria-hidden="true">&#8599;</span>
             </a>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsDarkMode((prev) => !prev)}
-            aria-label={isDarkMode ? 'Switch to light theme' : 'Switch to dark theme'}
-          >
-            {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </Button>
+          <ThemeSwitch dark={isDarkMode} onChange={setIsDarkMode} />
         </div>
       </header>
 
@@ -748,6 +739,44 @@ function App() {
           </p>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/**
+ * The day/night switch from devanghacks.in. `checked` is night, matching the
+ * original, and the checkbox stays a real checkbox so it keeps its keyboard
+ * behaviour and its label.
+ */
+function ThemeSwitch({
+  dark,
+  onChange,
+}: {
+  dark: boolean;
+  onChange: (dark: boolean) => void;
+}) {
+  return (
+    <div className="theme-switch-wrap" title="Toggle light / dark theme">
+      <label className="switch">
+        <input
+          type="checkbox"
+          aria-label="Toggle light and dark theme"
+          checked={dark}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <div className="slider round white">
+          <img className="clouds cloud1" src="/theme-switch/clouds.png" alt="" />
+          <img className="clouds cloud2" src="/theme-switch/clouds.png" alt="" />
+          <div className="night" />
+          <img className="balloon" src="/theme-switch/balloon.png" alt="" />
+          <p className="star">&#10022;</p>
+          <p className="star">&#10022;</p>
+          <p className="star">&#10022;</p>
+          <p className="star">&#10022;</p>
+          <p className="star">&#10022;</p>
+          <img className="spaceship" src="/theme-switch/spaceship.png" alt="" />
+        </div>
+      </label>
     </div>
   );
 }
