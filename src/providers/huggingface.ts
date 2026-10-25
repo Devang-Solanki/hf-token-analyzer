@@ -432,6 +432,26 @@ export const huggingfaceProvider: Provider = {
   id: ID,
   name: NAME,
   tokenUrl: 'https://huggingface.co/settings/tokens',
+  formats: ['hf_'],
+  docs: {
+    summary:
+      'HuggingFace reports a token\'s role directly, so read, write and administrative tokens are graded without guesswork. Fine-grained tokens list the exact resources they name, which is where the interesting detail is.',
+    endpoints: [
+      { call: 'GET /api/whoami-v2', purpose: 'the token\'s role, name, expiry, scopes and the account it belongs to' },
+      { call: 'GET /api/models?author=', purpose: 'models the account owns' },
+      { call: 'GET /api/datasets?author=', purpose: 'datasets the account owns' },
+      { call: 'GET /api/spaces?author=', purpose: 'spaces the account owns' },
+      {
+        call: 'GET /api/{models,datasets,spaces}/{id}',
+        purpose: 'repositories a fine-grained token names that the account does not own',
+      },
+    ],
+    limits: [
+      'A fine-grained scope naming a user or an organization covers every repository under it, including ones created after the token was issued. That is reported as covering the whole account rather than as one resource.',
+      'Listings follow the Hub\'s cursor header, which a browser cannot always read. When one stops early the count carries a + and the page says so.',
+      'Organization security policies such as MFA or SSO can refuse requests, which makes a listing incomplete. That is reported as a finding rather than left to look like an empty result.',
+    ],
+  },
   detect,
   analyze,
   listResources,

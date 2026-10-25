@@ -644,6 +644,25 @@ export const gitlabProvider: Provider = {
   id: ID,
   name: NAME,
   tokenUrl: 'https://gitlab.com/-/user_settings/personal_access_tokens',
+  formats: ['glpat-'],
+  docs: {
+    summary:
+      'GitLab has one endpoint where a token describes itself, which makes it the most forthcoming of the three: scopes, granular scopes, revocation state and the addresses it was last used from all come back in a single call.',
+    endpoints: [
+      { call: 'GET /api/v4/personal_access_tokens/self', purpose: 'the token describing itself' },
+      { call: 'GET /api/v4/user', purpose: 'identity, and the bot account that reveals whether this is a project or group token' },
+      { call: 'GET /api/v4/groups', purpose: 'group membership' },
+      { call: 'GET /api/v4/projects?membership=true', purpose: 'projects, followed page by page through the Link header' },
+    ],
+    limits: [
+      'gitlab.com only. A self-managed token will be rejected. Supporting other instances means asking for a host, which means sending a credential to a server you name - worth doing, but not silently.',
+      'Personal, project and group access tokens all carry the same glpat- prefix. The kind is read from the bot account the token authenticates as, so a group token is not mistaken for a personal one.',
+      'Deploy, runner, job, trigger, feed, agent and SCIM tokens authenticate against Git, the registry or a runner rather than the API. They are recognised by format and reported as such, with nothing sent anywhere.',
+      'A project is Private, Internal or Public. Internal means anyone with an account on the instance can read it, which is neither of the other two.',
+    ],
+  },
+  formatNote:
+    'Twelve other GitLab token types are recognised by format, but the API describes none of them. gitlab.com only.',
   detect,
   analyze,
   listResources,

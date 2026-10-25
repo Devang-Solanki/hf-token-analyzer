@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Docs — Token Analyzer</title>
+    <meta
+      name="description"
+      content="How Token Analyzer reads a HuggingFace, GitHub or GitLab access token: which endpoints it calls, how a verdict is decided, and what each provider will not tell you."
+    />
+    <link rel="canonical" href="https://token.devanghacks.in/docs" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0c0f" media="(prefers-color-scheme: dark)" />
+
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Token Analyzer" />
+    <meta property="og:title" content="How this reads a token" />
+    <meta
+      property="og:description"
+      content="Which endpoints it calls, how a verdict is decided, and what each provider will not tell you."
+    />
+    <meta property="og:url" content="https://token.devanghacks.in/docs" />
+    <meta property="og:image" content="https://token.devanghacks.in/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://token.devanghacks.in/og.png" />
+
+    <link
+      rel="preload"
+      href="/fonts/jetbrains-mono-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/space-grotesk-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <script>
+      (function () {
+        var t;
+        try {
+          t = localStorage.getItem('theme');
+        } catch (e) {
+          /* private mode or blocked storage */
+        }
+        if (t !== 'light' && t !== 'dark') {
+          t =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+              ? 'light'
+              : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
+
+    <script
+      defer
+      src="https://cloud.umami.is/script.js"
+      data-website-id="1d990739-7749-4ea8-ba32-2bba08af031b"
+    ></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/docs.tsx"></script>
+  </body>
+</html>

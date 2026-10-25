@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { SiteFooter, SiteHeader } from '@/components/SiteChrome';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -101,13 +102,6 @@ function joinNames(names: string[], conjunction: 'or' | 'and'): string {
 
 const PROVIDER_NAMES = PROVIDERS.map((provider) => provider.name);
 
-const VERDICT_KEY: { level: Level; name: string; meaning: string }[] = [
-  { level: 'contained', name: 'Read-only', meaning: 'downloads what you can already see' },
-  { level: 'contained', name: 'Scoped', meaning: 'reaches only the resources it names' },
-  { level: 'elevated', name: 'Write', meaning: 'changes anything the account owns' },
-  { level: 'total', name: 'Admin', meaning: 'deletes repositories and manages organizations' },
-];
-
 function App() {
   const [token, setToken] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -119,21 +113,7 @@ function App() {
   const [isListing, setIsListing] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [isDarkMode, setIsDarkMode] = useState(
-    () =>
-      typeof document === 'undefined' ||
-      document.documentElement.getAttribute('data-theme') !== 'light'
-  );
   const tokenInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
-    try {
-      localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-    } catch {
-      /* storage can be unavailable; the class is what matters */
-    }
-  }, [isDarkMode]);
 
   // Recognised from the token's format alone. Nothing is sent anywhere until
   // the user asks for the analysis.
@@ -292,43 +272,20 @@ function App() {
         Skip to results
       </a>
 
-      <header className="border-b border-rule">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <span className="flex items-center gap-2.5">
-              <img
-                src="/logo.png"
-                alt=""
-                width="30"
-                height="28"
-                className="h-[1.75rem] w-auto shrink-0"
-              />
-              <span className="text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-accent-text">
-                [ Token Analyzer ]
-              </span>
-            </span>
-            <a
-              href="https://devanghacks.in"
-              className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-accent-text"
-            >
-              devanghacks.in <span aria-hidden="true">&#8599;</span>
-            </a>
-          </div>
-          <ThemeSwitch dark={isDarkMode} onChange={setIsDarkMode} />
-        </div>
-      </header>
+      <SiteHeader />
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 pb-20 sm:px-6">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-20 sm:px-6">
+        <div className="max-w-4xl">
         <section className={report ? 'pt-8' : 'pt-10 sm:pt-14'}>
           {!report && (
             <>
-              <h1 className="max-w-[20ch] text-[clamp(2rem,5.4vw,3.4rem)] font-medium leading-[1.06] tracking-[-0.02em]">
+              <h1 className="max-w-[20ch] text-[clamp(1.75rem,4.2vw,2.75rem)] font-medium leading-[1.08] tracking-[-0.02em]">
                 What can this token do?
               </h1>
               <p className="prose-width mt-4 text-[0.875rem] leading-relaxed text-muted-foreground">
-                Paste a {joinNames(PROVIDER_NAMES, 'or')} access token to see its permissions,
-                the accounts it reaches and the repositories it can change. The token is read in
-                your browser and sent only to the service it belongs to.
+                Paste a supported access token to see its permissions, the accounts it reaches
+                and the repositories it can change. The token is read in your browser and sent
+                only to the service it belongs to.
               </p>
             </>
           )}
@@ -380,47 +337,39 @@ function App() {
                 )}
               </div>
             </div>
-            <p id="token-hint" className="mt-2.5 text-[0.8125rem] text-muted-foreground">
-              {detected ? (
-                <>
-                  Recognised as a {detected.name} token. It will be sent to {detected.name} and
-                  nowhere else.
-                </>
-              ) : (
-                <>
-                  Reads{' '}
-                  {PROVIDERS.map((p, index) => (
-                    <span key={p.id}>
-                      {index > 0 && (index === PROVIDERS.length - 1 ? ' and ' : ', ')}
-                      <a
-                        href={p.tokenUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="link"
-                      >
-                        {p.name}
-                      </a>
-                    </span>
-                  ))}{' '}
-                  tokens.
-                </>
-              )}
-            </p>
+            {token.trim() !== '' && (
+              <p id="token-hint" className="mt-2.5 text-[0.8125rem] text-muted-foreground">
+                {detected ? (
+                  <>
+                    Recognised as a {detected.name} token. It will be sent to {detected.name} and
+                    nowhere else.
+                  </>
+                ) : (
+                  <>Not a format this tool recognises. Nothing has been sent anywhere.</>
+                )}
+              </p>
+            )}
           </div>
-
           {!report && !analysisError && (
             <div className="mt-14 section-rule pt-8">
-              <h2 className="display max-w-[34ch] text-[1.0625rem] font-medium tracking-[-0.01em]">
-                Every token lands in one of four places.
-              </h2>
-              <ul className="mt-5 max-w-2xl">
-                {VERDICT_KEY.map(({ level, name, meaning }) => (
-                  <li
-                    key={name}
-                    className={`${SEVERITY_CLASS[level]} sev-rail flex flex-wrap items-baseline gap-x-3 gap-y-0.5 bg-card px-4 py-3`}
-                  >
-                    <span className="sev-text text-sm font-medium">{name}</span>
-                    <span className="text-sm text-muted-foreground">{meaning}</span>
+              <SectionHead title="Supported tokens" note={`${PROVIDERS.length} providers`} />
+              <ul className="mt-5 grid gap-px sm:grid-cols-2 lg:grid-cols-3">
+                {PROVIDERS.map((provider) => (
+                  <li key={provider.id} className="flex flex-col bg-card p-4">
+                    <h3 className="display text-[0.9375rem] font-medium">{provider.name}</h3>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {provider.formats.map((format) => (
+                        <Badge key={format} className="mono normal-case tracking-normal">
+                          {format}
+                        </Badge>
+                      ))}
+                    </div>
+                    <a
+                      href={`/docs/#${provider.id}`}
+                      className="mt-auto pt-4 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground hover:text-accent-text"
+                    >
+                      What it reads <span aria-hidden="true">&#8594;</span>
+                    </a>
                   </li>
                 ))}
               </ul>
@@ -729,66 +678,10 @@ function App() {
             </>
           )}
         </div>
+        </div>
       </main>
 
-      <footer className="mt-auto border-t border-rule">
-        <div className="prose-width mx-auto max-w-4xl px-4 py-8 text-[0.8125rem] leading-relaxed text-muted-foreground sm:px-6">
-          <p>
-            Your token is read in the browser and sent only to the service it belongs to. This page
-            counts anonymous visits with Umami; that never includes your token or anything read
-            with it.
-          </p>
-          <p className="mt-2">
-            Built for the security community.{' '}
-            <a
-              href="https://github.com/Devang-Solanki/hf-token-analyzer"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="link"
-            >
-              Source on GitHub
-            </a>
-          </p>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-/**
- * The day/night switch from devanghacks.in. `checked` is night, matching the
- * original, and the checkbox stays a real checkbox so it keeps its keyboard
- * behaviour and its label.
- */
-function ThemeSwitch({
-  dark,
-  onChange,
-}: {
-  dark: boolean;
-  onChange: (dark: boolean) => void;
-}) {
-  return (
-    <div className="theme-switch-wrap" title="Toggle light / dark theme">
-      <label className="switch">
-        <input
-          type="checkbox"
-          aria-label="Toggle light and dark theme"
-          checked={dark}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        <div className="slider round white">
-          <img className="clouds cloud1" src="/theme-switch/clouds.png" alt="" />
-          <img className="clouds cloud2" src="/theme-switch/clouds.png" alt="" />
-          <div className="night" />
-          <img className="balloon" src="/theme-switch/balloon.png" alt="" />
-          <p className="star">&#10022;</p>
-          <p className="star">&#10022;</p>
-          <p className="star">&#10022;</p>
-          <p className="star">&#10022;</p>
-          <p className="star">&#10022;</p>
-          <img className="spaceship" src="/theme-switch/spaceship.png" alt="" />
-        </div>
-      </label>
+      <SiteFooter />
     </div>
   );
 }

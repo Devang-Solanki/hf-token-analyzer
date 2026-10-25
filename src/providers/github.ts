@@ -518,6 +518,24 @@ export const githubProvider: Provider = {
   id: ID,
   name: NAME,
   tokenUrl: 'https://github.com/settings/tokens',
+  formats: ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_'],
+  docs: {
+    summary:
+      'Classic tokens publish their scopes in a response header, so the whole permission set is readable. Scopes are translated into the questions that matter: what it can change, what survives revoking it, and what it reaches beyond this account.',
+    endpoints: [
+      { call: 'GET /user', purpose: 'identity, plus the X-OAuth-Scopes and X-GitHub-SSO headers' },
+      { call: 'GET /user/orgs', purpose: 'organization membership' },
+      { call: 'GET /user/repos', purpose: 'repositories, followed page by page through the Link header' },
+      { call: 'GET /gists', purpose: 'gists, including secret ones' },
+    ],
+    limits: [
+      'Expiry cannot be read. GitHub returns it in a header it does not expose to browsers, so this page says "not reported" rather than guessing "never".',
+      'Fine-grained and app tokens do not publish their permissions anywhere. Establishing them would mean calling endpoints to see which succeed, which this tool will not do with a credential that may not be yours. They are judged by the repositories they open instead.',
+      'A secret gist is unlisted, not private: anyone with the link can read it. It is labelled Secret so it does not read as protected.',
+    ],
+  },
+  formatNote:
+    'Legacy 40-character tokens too. Fine-grained and app tokens are read, but GitHub does not publish their permissions.',
   detect,
   analyze,
   listResources,

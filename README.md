@@ -24,6 +24,8 @@
 - **📦 Repositories**: everything the token opens, filterable by kind, visibility and write access, and flagged when a listing is incomplete
 - **🎯 Fine-grained scopes**: the exact resources a scoped token names
 - **⏰ Expiry**: when it stops working, and a warning when it never does
+- **📖 Documented per provider**: [`/docs`](https://token.devanghacks.in/docs) explains what
+  each provider is asked and what it will not say, generated from the provider code itself
 - **🌙 Light and dark**: resolved before first paint, so there is no flash
 
 ## 🚀 Getting Started
@@ -47,7 +49,15 @@ npm install
 npm run dev
 ```
 
-The application will be available at `http://localhost:5173`
+The application will be available at `http://localhost:5173`, with the documentation at
+`http://localhost:5173/docs`.
+
+There are two HTML entries, so `/docs` is a real path rather than a hash route. Vite's dev and
+preview servers otherwise rewrite any unmatched path to the root `index.html`, which makes
+`/docs` silently serve the homepage - the `directory-index` plugin in
+[`vite.config.ts`](vite.config.ts) resolves extensionless paths to their directory index the way
+a static host does. In production [`public/_redirects`](public/_redirects) states the same thing
+for Cloudflare Pages rather than relying on its default.
 
 ### Building for Production
 
@@ -108,7 +118,7 @@ The light theme links in `#1a5fc4` rather than the site's `#2F89FC`, which measu
 - **TypeScript** - Type safety
 - **Vite** - Build tool
 - **Tailwind CSS** - Styling
-- **Space Grotesk / IBM Plex Mono** - Typefaces
+- **Space Grotesk / JetBrains Mono** - Typefaces, self-hosted from devanghacks.in
 - **Lucide React** - Icons
 
 ## 📁 Project Structure
@@ -121,31 +131,46 @@ git show 1881b02:public/logo.png > logo-source.png
 ```
 
 ```
+index.html                 # the analyzer
+docs/index.html            # the documentation
+
 assets/
-└── og-template.html    # renders to public/og.png; see the comment at its top
+└── og-template.html       # renders to public/og.png; see the comment at its top
+
+public/
+├── 404.html               # copied from devanghacks.in, self-contained
+├── _redirects             # /docs -> /docs/ on Cloudflare Pages
+├── fonts/                 # the same woff2 files the main site uses
+└── theme-switch/          # artwork for the day/night switch
 
 src/
+├── main.tsx               # entry point for /
+├── docs.tsx               # entry point for /docs
+├── index.css              # the whole token system
+├── App.tsx                # the analyzer
 ├── components/
-│   └── ui/           # small shadcn-style primitives
+│   ├── SiteChrome.tsx     # header and footer, shared by both pages
+│   ├── DocsApp.tsx        # the docs page, generated from the registry
+│   └── ui/                # small shadcn-style primitives
 │       ├── badge.tsx
 │       ├── button.tsx
 │       ├── input.tsx
 │       └── tabs.tsx
-├── providers/        # one analyzer per service; the UI renders their common output
-│   ├── types.ts      # the TokenReport contract every provider produces
-│   ├── http.ts       # shared cursor pagination
+├── providers/             # one analyzer per service
+│   ├── types.ts           # the TokenReport contract every provider produces
+│   ├── http.ts            # shared cursor pagination
+│   ├── index.ts           # registry and format detection
 │   ├── huggingface.ts
 │   ├── github.ts
-│   └── index.ts      # registry and format detection
+│   └── gitlab.ts
 ├── lib/
-│   └── utils.ts      # Utility functions
+│   ├── theme.ts           # theme state, shared by both pages
+│   ├── time.ts            # date formatting, shared by every provider
+│   └── utils.ts           # the cn() class helper
 ├── services/
-│   └── tokenAnalyzer.ts  # Token analysis logic
-├── types/
-│   └── huggingface.ts    # TypeScript types
-├── App.tsx           # Main application
-├── main.tsx          # Entry point
-└── index.css         # Global styles
+│   └── tokenAnalyzer.ts   # the HuggingFace API layer
+└── types/
+    └── huggingface.ts     # HuggingFace API response types
 ```
 
 ## 🔌 Providers
@@ -156,10 +181,10 @@ for an unsupported service is never transmitted by accident.
 | Provider | Token formats | What is reported |
 |---|---|---|
 | **HuggingFace** | `hf_` | role, fine-grained scopes, orgs, repositories |
-| **GitHub** | `ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, legacy 40-hex | classic scopes, orgs, repositories, gists |
+| **GitHub** | `ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_`, legacy 40-hex | classic scopes, orgs, repositories, gists |
 | **GitLab** | `glpat-` (plus 12 other prefixes, recognised but not introspectable) | scopes, granular scopes, groups, projects |
 
-### Why only these two
+### Why only these
 
 Everything runs in the browser, so a provider is only supportable if its API allows a
 cross-origin request carrying an `Authorization` header. That is a property of the provider,
@@ -187,54 +212,20 @@ through someone else's machine, which defeats the point of the tool.
   than called unrecognised, so nobody pastes a live credential somewhere less careful looking
   for an answer.
 
-## 🔧 API Endpoints Used
+## 🔧 What it calls
 
-HuggingFace:
-- `GET /api/whoami-v2` - information about the authenticated user and token
-- `GET /api/{models,datasets,spaces}?author=...` - repository listings, followed page by page
-
-GitHub:
-- `GET /user` - identity, plus `X-OAuth-Scopes` and `X-GitHub-SSO` response headers
-- `GET /user/orgs` - organization membership
-- `GET /user/repos` - repository listings, followed via the `Link` header
-- `GET /gists` - gists, including secret ones, when the token carries `gist`
-
-GitLab:
-- `GET /api/v4/personal_access_tokens/self` - the token describes itself: scopes, granular
-  scopes, expiry, revocation state and the addresses it was last used from
-- `GET /api/v4/user` - identity. Project and group access tokens share the `glpat-` prefix with
-  personal ones, so the kind is read from the bot account they authenticate as
-- `GET /api/v4/groups` - group membership
-- `GET /api/v4/projects?membership=true` - project listings, followed via the `Link` header
-
-Secret gists are reported as **Secret**, not Private: anyone holding the link can read one, so
-calling it private would overstate how protected it is. GitLab projects are likewise reported as
-**Private**, **Internal** or **Public** rather than collapsed into two: internal means anyone
-with an account on the instance can read it, which is neither of the other two.
-
-## 📝 Token Permissions Analyzed
-
-| Permission | Description |
-|------------|-------------|
-| Read Models | Access to read model repositories |
-| Write Models | Ability to create/modify models |
-| Read Datasets | Access to read dataset repositories |
-| Write Datasets | Ability to create/modify datasets |
-| Read Spaces | Access to read Space repositories |
-| Write Spaces | Ability to create/modify Spaces |
-| Access Gated Repos | Access to gated/restricted content |
-| Manage Repositories | Create/delete repositories |
-| Write Discussions | Post in discussions |
-| Write Posts | Create blog posts |
-| Access Billing | View billing information |
-| Manage Organizations | Admin access to organizations |
-| Admin Access | Full administrative privileges |
+Every request each provider makes, and why, is listed at
+[`/docs`](https://token.devanghacks.in/docs) - generated from the `docs` field on each provider,
+so it cannot drift from the code that makes the calls. The same page states what each provider
+will not tell you and what the tool does instead.
 
 ## ➕ Adding a provider
 
 Implement the `Provider` interface in [`src/providers/types.ts`](src/providers/types.ts) and add
 it to the registry in [`src/providers/index.ts`](src/providers/index.ts). No component changes
-are needed - the UI renders `TokenReport` and nothing else.
+are needed: the report, the supported-token cells on the homepage, the filters and the whole
+`/docs` page are generated from the registry. Fill in the `docs` field and the provider
+documents itself.
 
 Before writing any code, check the provider actually permits a browser request:
 

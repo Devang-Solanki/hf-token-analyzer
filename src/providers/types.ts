@@ -124,11 +124,34 @@ export interface TokenReport {
   notes: string[];
 }
 
+/**
+ * What the docs page says about a provider. It lives here so the page is
+ * generated from the code that does the work, rather than being prose someone
+ * has to remember to update when an endpoint or a limit changes.
+ */
+export interface ProviderDocs {
+  /** What reading this provider's token actually tells you. */
+  summary: string;
+  /** Every request made, in order, and why. */
+  endpoints: { call: string; purpose: string }[];
+  /** What this provider will not tell us, and what the tool does instead. */
+  limits: string[];
+}
+
 export interface Provider {
   id: string;
   name: string;
   /** Where a user creates a token, shown in the empty state. */
   tokenUrl: string;
+  /**
+   * Token formats this provider fully analyses, shown verbatim so they can be
+   * compared against the string in hand. Kept here rather than in the UI so a
+   * new provider needs no component change to appear in the supported list.
+   */
+  formats: string[];
+  /** Anything else about what it recognises, in one short line. */
+  formatNote?: string;
+  docs: ProviderDocs;
   /** Recognises the credential from its format alone, before any request. */
   detect(token: string): boolean;
   analyze(token: string): Promise<TokenReport>;
